@@ -101,6 +101,35 @@ export function dispatchOrders() {
   }
 }
 
+// Rolling planned-vs-actual pace per station, keyed by the leaf step type it
+// performed (a composite station runs several step types, tracked separately).
+// Consistent drift beyond tolerance is often the first sign of tool wear or a
+// feeding problem, so it raises a warning the manager can act on.
+const DRIFT_RATIO = 1.3; // alert when ≥30% slower than designed
+const RECOVER_RATIO = 1.15;
+
+function recordActual(station, stage, order) {
+  if (!stage.startedAt || !order.qty) return;
+  const secPerUnit = (Date.now() - stage.startedAt) / 1000 / order.qty;
+  station.actualByType ??= {};
+  const rec = (station.actualByType[stage.typeId] ??= { ema: null, n: 0, planned: null, last: null, driftAlerted: false });
+  rec.n += 1;
+  rec.last = +secPerUnit.toFixed(2);
+  rec.planned = stage.timeSecPerUnit; // reference from the order's design snapshot
+  rec.ema = +(rec.ema == null ? secPerUnit : rec.ema * 0.7 + secPerUnit * 0.3).toFixed(2);
+
+  const ratio = rec.planned > 0 ? rec.ema / rec.planned : 1;
+  if (rec.n >= 3 && ratio >= DRIFT_RATIO && !rec.driftAlerted) {
+    rec.driftAlerted = true;
+    raiseAlert('warning', station.name,
+      `Running ${Math.round((ratio - 1) * 100)}% slower than designed on ${stage.name} ` +
+      `(planned ${rec.planned}s, measured ≈${rec.ema}s per unit) — check tooling/material feed`);
+  } else if (rec.driftAlerted && ratio <= RECOVER_RATIO) {
+    rec.driftAlerted = false;
+    logEvent('station', station.name, `${stage.name} pace back within tolerance (≈${rec.ema}s per unit)`);
+  }
+}
+
 // A station reported its current stage batch finished.
 export function completeStage(station) {
   const order = findOrder(station.currentOrderId);
@@ -113,6 +142,7 @@ export function completeStage(station) {
   const stage = order.stages[order.stageIndex];
   stage.status = 'done';
   stage.finishedAt = Date.now();
+  recordActual(station, stage, order);
   station.unitsToday += order.qty;
   logEvent('workflow', station.name, `${order.code} finished ${stage.name}`);
 

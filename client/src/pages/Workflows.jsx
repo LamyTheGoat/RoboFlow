@@ -136,6 +136,8 @@ function WorkflowsTab({ state }) {
 
   const flat = draft ? flattenDraft(state, draft.steps) : [];
   const totalTime = flat.reduce((s, f) => s + (f.timeSecPerUnit ?? 0), 0);
+  const anyMeasured = flat.some((f) => f.measuredSecPerUnit != null);
+  const measuredTime = flat.reduce((s, f) => s + (f.measuredSecPerUnit ?? f.timeSecPerUnit ?? 0), 0);
 
   return (
     <div className="designer-split">
@@ -228,7 +230,13 @@ function WorkflowsTab({ state }) {
             ))}
             {flat.length === 0 && <span className="muted" style={{ fontSize: 12 }}>nothing yet</span>}
           </div>
-          {flat.length > 0 && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>≈ {totalTime.toFixed(1)}s of station time per unit</div>}
+          {flat.length > 0 && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              ≈ {totalTime.toFixed(1)}s designed
+              {anyMeasured && <> · <span style={{ color: measuredTime > totalTime * 1.15 ? 'var(--warning)' : 'var(--ink-2)' }}>{measuredTime.toFixed(1)}s measured on the floor</span></>}
+              {' '}per unit
+            </div>
+          )}
 
           <div className="form-row mt" style={{ alignItems: 'center' }}>
             <button className="btn btn-primary" onClick={save} disabled={!draft.name.trim() || draft.steps.length === 0}>
@@ -387,11 +395,32 @@ function StationTypesTab({ state }) {
             </>
           ) : (
             <>
-              <div className="form-row mt">
+              <div className="form-row mt" style={{ alignItems: 'end' }}>
                 <label className="field">Time per unit (seconds)
                   <input type="number" step="0.5" min="0.5" value={draft.timeSecPerUnit}
                     onChange={(e) => setDraft({ ...draft, timeSecPerUnit: Number(e.target.value) })} style={{ width: 100 }} />
                 </label>
+                {selectedId !== 'new' && selected?.measuredSecPerUnit != null && (
+                  <div className="pace-row" style={{ paddingBottom: 6 }}>
+                    <span className={selected.measuredSecPerUnit > draft.timeSecPerUnit * 1.3 ? 'drift' : undefined}>
+                      ⏱ measured on the floor: {selected.measuredSecPerUnit}s/unit
+                    </span>
+                    <button type="button" className="btn btn-tiny" title="Replace the designed time with the measured average"
+                      onClick={async () => {
+                        setError(null);
+                        try {
+                          const updated = await api.adoptMeasured(selectedId);
+                          setDraft({ ...draft, timeSecPerUnit: updated.timeSecPerUnit });
+                          setSaved(true);
+                          setTimeout(() => setSaved(false), 2000);
+                        } catch (err) {
+                          setError(err.message);
+                        }
+                      }}>
+                      adopt measured time
+                    </button>
+                  </div>
+                )}
               </div>
               <h2 className="mt">Inputs — materials consumed per unit</h2>
               <InputsEditor state={state} inputs={draft.inputs} onChange={(inputs) => setDraft({ ...draft, inputs })} />

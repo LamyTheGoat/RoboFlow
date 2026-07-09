@@ -75,7 +75,9 @@ export function Projects({ state, goTo }) {
                     ))}
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                    ≈ {wf.totals.timeSecPerUnit}s of station time per unit
+                    ≈ {wf.totals.timeSecPerUnit}s designed
+                    {wf.totals.measuredSecPerUnit != null && <> · {wf.totals.measuredSecPerUnit}s measured</>}
+                    {' '}per unit
                     · <a style={{ color: 'var(--accent)', cursor: 'pointer' }} onClick={() => goTo('workflows')}>edit workflow →</a>
                   </div>
                 </>

@@ -12,6 +12,16 @@ const CUSTOMERS = ['Nordwerk GmbH', 'Meridian Logistics', 'HydroParts AS', 'Vekt
 const chance = (p) => Math.random() < p;
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+// Each simulated station has a hidden pace factor (0.75 = 25% faster than
+// designed, 1.45 = 45% slower) so planned-vs-actual tracking has something
+// real to measure — slow outliers will trip the drift warning, as a worn
+// tool would on a real floor.
+const paceFactor = new Map();
+const paceOf = (id) => {
+  if (!paceFactor.has(id)) paceFactor.set(id, 0.75 + Math.random() * 0.7);
+  return paceFactor.get(id);
+};
+
 function tick() {
   // Rolling utilization (EMA over ~1 hour of ticks).
   for (const station of state.stations) {
@@ -24,7 +34,7 @@ function tick() {
     if (station.status !== 'running' || !station.currentOrderId) continue;
     const order = state.orders.find((o) => o.id === station.currentOrderId);
     const stage = order?.stages[order.stageIndex];
-    const batchSec = Math.max(4, (stage?.timeSecPerUnit ?? 4) * (order?.qty ?? 10));
+    const batchSec = Math.max(4, (stage?.timeSecPerUnit ?? 4) * (order?.qty ?? 10) * paceOf(station.id));
     const advance = ((TICK_MS / 1000) / batchSec) * 100 * (0.7 + Math.random() * 0.6);
     const progress = station.progress + advance;
     if (progress >= 100) {

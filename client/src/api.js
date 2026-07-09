@@ -39,4 +39,6 @@ export const api = {
   removeStation: (id) => send('DELETE', `/api/stations/${id}`),
   createProject: (body) => send('POST', '/api/projects', body),
   updateProject: (id, body) => send('PATCH', `/api/projects/${id}`, body),
+  updateFactory: (body) => send('PATCH', '/api/factory', body),
+  adoptMeasured: (typeId) => send('POST', `/api/station-types/${typeId}/adopt-measured`),
 };

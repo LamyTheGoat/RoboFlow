@@ -20,11 +20,26 @@ It is also a factory *design* tool:
   (project) picks the workflow its orders run through; edits apply to new
   orders while orders already on the floor keep their routing.
 - **Factory** — a Factorio-style top-down floor. Place stations from the
-  palette onto the grid (each occupies its designed footprint; overlaps and
-  out-of-bounds installs are refused) and they instantly become real, live
-  stations that the plant dispatches work to. Select a workflow to see its
-  animated conveyor route from Warehouse to Dispatch, watch order pucks travel
-  between stations, and move / rename / dismantle stations in place.
+  palette onto the grid (each occupies its designed footprint; a hover ghost
+  shows green/red validity before you click, and overlaps or out-of-bounds
+  installs are refused) and they instantly become real, live stations that the
+  plant dispatches work to. Select a workflow to see its animated conveyor
+  route from Warehouse to Dispatch, watch order pucks travel between stations,
+  and move / rename / dismantle stations in place. The floor itself is
+  resizable (8×6 up to 60×40 cells) and refuses to shrink over installed
+  stations.
+- **Planned vs. actual pace** — every finished batch records the station's
+  real time-per-unit (rolling average per station, per step type). Stations
+  show `planned → measured`, workflows and projects show designed vs. measured
+  totals, and a station that runs ≥30% slower than designed for 3+ batches
+  raises a drift warning — often the first sign of tool wear or a feeding
+  problem. One click in the Design studio ("adopt measured time") updates a
+  design to the fleet-measured reality. Designed times never *drive* real
+  stations: production always advances on the machine's own
+  `stage.completed` report.
+
+**Kullanım kılavuzu (Türkçe):** yeni başlayanlar için ayrıntılı el kitabı —
+[`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md)
 
 ![Control room](docs/screenshot-overview.png)
 

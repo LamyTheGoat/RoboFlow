@@ -13,6 +13,8 @@ export function Factory({ state }) {
   const [moving, setMoving] = useState(false);
   const [wfId, setWfId] = useState(workflows[0]?.id ?? '');
   const [error, setError] = useState(null);
+  const [hover, setHover] = useState(null); // {x, y} grid cell under the cursor
+  const [floorForm, setFloorForm] = useState(null); // {w, h} while editing floor size
   const boardRef = useRef(null);
 
   const selected = stations.find((s) => s.id === selectedId) ?? null;
@@ -79,13 +81,39 @@ export function Factory({ state }) {
     return out;
   }, [orders, stations, now]);
 
-  async function onBoardClick(e) {
+  function cellFromEvent(e) {
     const rect = boardRef.current.getBoundingClientRect();
-    const px = e.clientX - rect.left - GUTTER;
-    const py = e.clientY - rect.top;
-    const x = Math.floor(px / CELL);
-    const y = Math.floor(py / CELL);
-    if (x < 0 || y < 0 || x >= grid.w || y >= grid.h) return;
+    const x = Math.floor((e.clientX - rect.left - GUTTER) / CELL);
+    const y = Math.floor((e.clientY - rect.top) / CELL);
+    return x >= 0 && y >= 0 && x < grid.w && y < grid.h ? { x, y } : null;
+  }
+
+  // Footprint about to be placed/moved at the hovered cell, with validity.
+  const ghost = useMemo(() => {
+    if (!hover) return null;
+    let w, h;
+    if (mode.startsWith('place:')) {
+      const t = typeById(state, mode.slice(6));
+      w = t?.w ?? 1;
+      h = t?.h ?? 1;
+    } else if (moving && selected) {
+      ({ w, h } = dims(selected));
+    } else {
+      return null;
+    }
+    const inBounds = hover.x + w <= grid.w && hover.y + h <= grid.h;
+    const clash = stations.some((s) => {
+      if (moving && selected && s.id === selected.id) return false;
+      const d = dims(s);
+      return hover.x < s.x + d.w && s.x < hover.x + w && hover.y < s.y + d.h && s.y < hover.y + h;
+    });
+    return { x: hover.x, y: hover.y, w, h, valid: inBounds && !clash };
+  }, [hover, mode, moving, selectedId, stations]);
+
+  async function onBoardClick(e) {
+    const cell = cellFromEvent(e);
+    if (!cell) return;
+    const { x, y } = cell;
     const hit = stationAt(x, y);
     setError(null);
     try {
@@ -134,6 +162,27 @@ export function Factory({ state }) {
             {workflows.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </label>
+        {floorForm ? (
+          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <input className="mini-input" type="number" min="8" max="60" style={{ width: 62 }} value={floorForm.w}
+              onChange={(e) => setFloorForm({ ...floorForm, w: Number(e.target.value) })} />
+            ×
+            <input className="mini-input" type="number" min="6" max="40" style={{ width: 62 }} value={floorForm.h}
+              onChange={(e) => setFloorForm({ ...floorForm, h: Number(e.target.value) })} />
+            <button className="btn btn-primary" onClick={async () => {
+              setError(null);
+              try {
+                await api.updateFactory({ gridW: floorForm.w, gridH: floorForm.h });
+                setFloorForm(null);
+              } catch (err) {
+                setError(err.message);
+              }
+            }}>Apply</button>
+            <button className="btn" onClick={() => setFloorForm(null)}>Cancel</button>
+          </span>
+        ) : (
+          <button className="chip" onClick={() => setFloorForm({ w: grid.w, h: grid.h })}>⛶ Floor {grid.w}×{grid.h}</button>
+        )}
       </div>
 
       {mode.startsWith('place:') && (
@@ -152,7 +201,8 @@ export function Factory({ state }) {
       )}
 
       <div className="board-scroll card" style={{ padding: 10 }}>
-        <div className="board" ref={boardRef} style={{ width: boardW, height: boardH }} onClick={onBoardClick}>
+        <div className="board" ref={boardRef} style={{ width: boardW, height: boardH }} onClick={onBoardClick}
+          onMouseMove={(e) => setHover(cellFromEvent(e))} onMouseLeave={() => setHover(null)}>
           <div className="zone zone-in" style={{ width: GUTTER - 14 }}><span>📥</span>WAREHOUSE</div>
           <div className="zone zone-out" style={{ width: GUTTER - 14 }}><span>🚚</span>DISPATCH</div>
           <div className="board-grid" style={{ left: GUTTER, width: grid.w * CELL, backgroundSize: `${CELL}px ${CELL}px` }} />
@@ -193,6 +243,16 @@ export function Factory({ state }) {
               </div>
             );
           })}
+
+          {ghost && (
+            <div className={`ghost ${ghost.valid ? 'ok' : 'bad'}`}
+              style={{
+                left: GUTTER + ghost.x * CELL + 3, top: ghost.y * CELL + 3,
+                width: ghost.w * CELL - 6, height: ghost.h * CELL - 6,
+              }}>
+              {ghost.valid ? '✓' : '✕'}
+            </div>
+          )}
 
           {pucks.map(({ o, x, y, done, waiting }) => (
             <div key={o.id} className={`puck${done ? ' done' : ''}${waiting ? ' waiting' : ''} prio-${o.priority}`}

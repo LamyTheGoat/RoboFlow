@@ -62,6 +62,21 @@ export function Stations({ state }) {
                 </div>
               ))}
 
+              {Object.entries(s.actualByType ?? {}).map(([tid, rec]) => {
+                const drifting = rec.planned > 0 && rec.n >= 3 && rec.ema / rec.planned >= 1.3;
+                return (
+                  <div key={tid} className="pace-row">
+                    <span>⏱ {typeById(state, tid)?.icon} {typeById(state, tid)?.name}:</span>
+                    <span className="muted">planned {rec.planned}s</span>
+                    <span>→</span>
+                    <span className={drifting ? 'drift' : undefined}>
+                      measured {rec.ema}s/unit {drifting ? '⚠ slow' : ''}
+                    </span>
+                    <span className="muted">({rec.n} batch{rec.n === 1 ? '' : 'es'})</span>
+                  </div>
+                );
+              })}
+
               <div className="cmd-row">
                 <button className="btn btn-primary" disabled={busy != null || s.status === 'running' || s.status === 'fault'}
                   onClick={() => command(s.id, 'start')}>▶ Start</button>

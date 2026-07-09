@@ -60,18 +60,41 @@ export function flattenWorkflow(workflowId, path = new Set()) {
   return steps;
 }
 
-// Aggregate materials + processing time per unit for a workflow.
+// Fleet-wide measured pace for a leaf type: sample-weighted average of the
+// per-station EMAs collected by the workflow engine. null until any station
+// has actually run this step type.
+export function measuredSecPerUnit(typeId) {
+  let weighted = 0;
+  let n = 0;
+  for (const s of state.stations) {
+    const rec = s.actualByType?.[typeId];
+    if (rec?.ema != null && rec.n > 0) {
+      weighted += rec.ema * rec.n;
+      n += rec.n;
+    }
+  }
+  return n ? +(weighted / n).toFixed(2) : null;
+}
+
+// Aggregate materials + processing time per unit for a workflow. Measured time
+// falls back to the designed time for steps that haven't run yet.
 export function workflowTotals(workflowId) {
   const flat = flattenWorkflow(workflowId);
   const inputs = new Map();
   let timeSecPerUnit = 0;
+  let measuredTime = 0;
+  let anyMeasured = false;
   for (const step of flat) {
     timeSecPerUnit += step.timeSecPerUnit ?? 0;
+    const m = measuredSecPerUnit(step.typeId);
+    measuredTime += m ?? step.timeSecPerUnit ?? 0;
+    if (m != null) anyMeasured = true;
     for (const inp of step.inputs) inputs.set(inp.sku, +((inputs.get(inp.sku) ?? 0) + inp.qty).toFixed(2));
   }
   return {
     inputsPerUnit: [...inputs].map(([sku, qty]) => ({ sku, qty })),
     timeSecPerUnit: +timeSecPerUnit.toFixed(1),
+    measuredSecPerUnit: anyMeasured ? +measuredTime.toFixed(1) : null,
   };
 }
 

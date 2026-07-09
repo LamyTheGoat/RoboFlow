@@ -7,7 +7,7 @@ import {
   placeStation, updateStation, removeStation,
 } from './workflow.js';
 import {
-  flattenWorkflow, workflowTotals,
+  flattenWorkflow, workflowTotals, measuredSecPerUnit,
   validateWorkflowSteps, validateTypeChildren,
 } from './catalog.js';
 
@@ -20,6 +20,7 @@ export function serializeState() {
     orders: state.orders.map((o) => ({ ...o, location: orderLocation(o) })),
     robots: state.robots.map(({ _tempAlerted, ...r }) => r),
     workflows: state.workflows.map((w) => ({ ...w, flat: flattenWorkflow(w.id), totals: workflowTotals(w.id) })),
+    stationTypes: state.stationTypes.map((t) => ({ ...t, measuredSecPerUnit: t.composite ? null : measuredSecPerUnit(t.id) })),
   };
 }
 
@@ -201,6 +202,37 @@ api.patch('/stations/:id', handle((req) => {
   });
 }));
 api.delete('/stations/:id', handle((req) => removeStation(req.params.id)));
+
+// One-click: replace a type's designed time with the fleet-measured average.
+api.post('/station-types/:id/adopt-measured', handle((req) => {
+  const type = state.stationTypes.find((t) => t.id === req.params.id);
+  if (!type) throw new Error('unknown station type');
+  if (type.composite) throw new Error('composite stations have no time of their own');
+  const measured = measuredSecPerUnit(type.id);
+  if (measured == null) throw new Error('no measured data yet — this step has not run on any station');
+  const old = type.timeSecPerUnit;
+  type.timeSecPerUnit = measured;
+  logEvent('designer', 'station-lab', `${type.icon} ${type.name}: designed time updated ${old}s → ${measured}s per unit (measured)`);
+  return type;
+}));
+
+// ---- factory floor size ----------------------------------------------------------------
+api.patch('/factory', handle((req) => {
+  const { gridW, gridH, name } = req.body;
+  if (name !== undefined && String(name).trim()) state.factory.name = String(name).trim().slice(0, 60);
+  if (gridW !== undefined || gridH !== undefined) {
+    const w = Math.round(Number(gridW ?? state.factory.grid.w));
+    const h = Math.round(Number(gridH ?? state.factory.grid.h));
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w < 8 || h < 6 || w > 60 || h > 40) {
+      throw new Error('floor size must be between 8×6 and 60×40 cells');
+    }
+    const blocker = state.stations.find((s) => s.x + (s.w ?? 1) > w || s.y + (s.h ?? 1) > h);
+    if (blocker) throw new Error(`cannot shrink: "${blocker.name}" would fall off the floor — move or dismantle it first`);
+    state.factory.grid = { w, h };
+    logEvent('designer', 'factory', `Factory floor resized to ${w}×${h} cells`);
+  }
+  return state.factory;
+}));
 
 // ---- projects (product lines) ---------------------------------------------------------
 api.post('/projects', handle((req) => {
