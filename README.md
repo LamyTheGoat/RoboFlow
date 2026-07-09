@@ -9,19 +9,22 @@ acknowledge alerts, create orders, change priorities).
 It is also a factory *design* tool:
 
 - **Design studio → Station types** — design your own stations: icon, time per
-  unit, materials consumed (inputs) and produced (outputs). Stations can be
-  **composite** (recursive): one physical cell that contains other stations —
-  including other composites — and can do all of their jobs.
+  unit, materials consumed (inputs) and produced (outputs), and a **footprint**
+  (width × depth in floor cells, up to 4×4) so the layout view reflects real
+  floor space. Stations can be **composite** (recursive): one physical cell
+  that contains other stations — including other composites — and can do all
+  of their jobs.
 - **Design studio → Workflows** — chain stations into workflows, reorder steps,
   override the materials any step uses. A workflow step can be a station *or a
   whole other workflow* (recursive nesting, cycle-guarded). Each product line
   (project) picks the workflow its orders run through; edits apply to new
   orders while orders already on the floor keep their routing.
 - **Factory** — a Factorio-style top-down floor. Place stations from the
-  palette onto the grid and they instantly become real, live stations that the
-  plant dispatches work to. Select a workflow to see its animated conveyor
-  route from Warehouse to Dispatch, watch order pucks travel between stations,
-  and move / rename / dismantle stations in place.
+  palette onto the grid (each occupies its designed footprint; overlaps and
+  out-of-bounds installs are refused) and they instantly become real, live
+  stations that the plant dispatches work to. Select a workflow to see its
+  animated conveyor route from Warehouse to Dispatch, watch order pucks travel
+  between stations, and move / rename / dismantle stations in place.
 
 ![Control room](docs/screenshot-overview.png)
 

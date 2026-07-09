@@ -260,7 +260,7 @@ function StationTypesTab({ state }) {
     setError(null);
     setSaved(false);
     if (selectedId === 'new') {
-      setDraft({ name: '', icon: '⚙️', description: '', timeSecPerUnit: 3, inputs: [], outputs: [], composite: false, children: [] });
+      setDraft({ name: '', icon: '⚙️', description: '', timeSecPerUnit: 3, inputs: [], outputs: [], composite: false, children: [], w: 1, h: 1 });
     } else if (selected) {
       setDraft(JSON.parse(JSON.stringify(selected)));
     }
@@ -301,7 +301,7 @@ function StationTypesTab({ state }) {
           <button key={t.id} className={`list-item${selectedId === t.id ? ' active' : ''}`} onClick={() => setSelectedId(t.id)}>
             <span style={{ fontWeight: 600 }}>{t.icon} {t.name}</span>
             <span className="muted" style={{ fontSize: 11.5 }}>
-              {t.composite ? `contains ${t.children.length} stations` : `${t.timeSecPerUnit}s/unit`} · {placedCount(t.id)} on floor
+              {t.composite ? `contains ${t.children.length} stations` : `${t.timeSecPerUnit}s/unit`} · {t.w ?? 1}×{t.h ?? 1} · {placedCount(t.id)} on floor
             </span>
           </button>
         ))}
@@ -325,6 +325,27 @@ function StationTypesTab({ state }) {
             {EMOJI_PRESETS.map((e) => (
               <button key={e} type="button" className={`emoji-btn${draft.icon === e ? ' active' : ''}`} onClick={() => setDraft({ ...draft, icon: e })}>{e}</button>
             ))}
+          </div>
+
+          <div className="form-row mt" style={{ alignItems: 'end' }}>
+            <label className="field">Footprint — width (cells)
+              <input type="number" min="1" max="4" value={draft.w ?? 1}
+                onChange={(e) => setDraft({ ...draft, w: Number(e.target.value) })} style={{ width: 90 }} />
+            </label>
+            <label className="field">depth (cells)
+              <input type="number" min="1" max="4" value={draft.h ?? 1}
+                onChange={(e) => setDraft({ ...draft, h: Number(e.target.value) })} style={{ width: 90 }} />
+            </label>
+            <div className="footprint-preview" title="How much floor it takes">
+              {Array.from({ length: (draft.h ?? 1) }, (_, r) => (
+                <div key={r} style={{ display: 'flex', gap: 2 }}>
+                  {Array.from({ length: (draft.w ?? 1) }, (_, c) => <span key={c} className="footprint-cell" />)}
+                </div>
+              ))}
+            </div>
+            <span className="muted" style={{ fontSize: 11.5, paddingBottom: 4 }}>
+              Stations already on the floor keep their size — footprint applies to new installs.
+            </span>
           </div>
 
           <label className="field mt" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-2)' }}>

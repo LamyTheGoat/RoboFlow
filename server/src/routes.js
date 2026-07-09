@@ -103,6 +103,7 @@ function readTypeBody(body, selfId) {
   const children = composite ? [...new Set(body.children ?? [])] : [];
   if (composite && children.length < 2) throw new Error('a composite station needs at least 2 inner stations');
   validateTypeChildren(selfId, children);
+  const dim = (v) => Math.min(4, Math.max(1, Math.round(Number(v) || 1)));
   return {
     name,
     icon: (body.icon ?? '⚙️').slice(0, 8),
@@ -112,6 +113,8 @@ function readTypeBody(body, selfId) {
     outputs: cleanOutputs(body.outputs),
     composite,
     children,
+    w: dim(body.w),
+    h: dim(body.h),
   };
 }
 

@@ -2,7 +2,7 @@
 // workflows (including one nested workflow as a recursion example), physical
 // stations placed on the factory grid, and three product lines.
 
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 export const GRID_W = 20;
 export const GRID_H = 12;
 
@@ -11,14 +11,14 @@ export function buildSeedState() {
   const day = 24 * 60 * 60 * 1000;
 
   const stationTypes = [
-    type('tp_cut', 'Cutter', '✂️', 3, 'Cuts raw sheets and profiles to size', [inp('steel-sheet', 2)]),
-    type('tp_weld', 'Welder', '🔥', 4, 'Joins cut parts into frames', [inp('welding-wire', 0.4)]),
-    type('tp_asm', 'Assembler', '🔧', 5, 'Mounts components onto frames', [inp('fastener-m8', 10)]),
-    type('tp_paint', 'Paint Booth', '🎨', 3, 'Applies protective coating', [inp('paint-ral7016', 0.4)]),
-    type('tp_qa', 'Inspector', '🔍', 2, 'Vision-checks every unit', []),
-    type('tp_pack', 'Packager', '📦', 1.5, 'Boxes finished goods for dispatch', [inp('carton-m', 1)]),
+    type('tp_cut', 'Cutter', '✂️', 3, 'Cuts raw sheets and profiles to size', [inp('steel-sheet', 2)], 2, 1),
+    type('tp_weld', 'Welder', '🔥', 4, 'Joins cut parts into frames', [inp('welding-wire', 0.4)], 1, 1),
+    type('tp_asm', 'Assembler', '🔧', 5, 'Mounts components onto frames', [inp('fastener-m8', 10)], 2, 2),
+    type('tp_paint', 'Paint Booth', '🎨', 3, 'Applies protective coating', [inp('paint-ral7016', 0.4)], 2, 1),
+    type('tp_qa', 'Inspector', '🔍', 2, 'Vision-checks every unit', [], 1, 1),
+    type('tp_pack', 'Packager', '📦', 1.5, 'Boxes finished goods for dispatch', [inp('carton-m', 1)], 2, 1),
     {
-      ...type('tp_finishcell', 'Finishing Cell', '🏭', 0, 'All-in-one cell: paints, inspects and packs', []),
+      ...type('tp_finishcell', 'Finishing Cell', '🏭', 0, 'All-in-one cell: paints, inspects and packs', [], 2, 2),
       composite: true,
       children: ['tp_paint', 'tp_qa', 'tp_pack'],
     },
@@ -89,6 +89,12 @@ export function buildSeedState() {
     station('st_qa1', 'Inspection Cell', 'tp_qa', 14, 4),
     station('st_pack1', 'Packaging Line', 'tp_pack', 17, 4),
   ];
+  // Stations carry a snapshot of their type's footprint at install time.
+  for (const s of stations) {
+    const t = stationTypes.find((x) => x.id === s.typeId);
+    s.w = t.w;
+    s.h = t.h;
+  }
 
   const robots = [
     robot('rb_01', 'KR-210 #01', 'KUKA KR 210', 'st_cut1'),
@@ -170,8 +176,8 @@ export function buildSeedState() {
   };
 }
 
-function type(id, name, icon, timeSecPerUnit, description, inputs) {
-  return { id, name, icon, timeSecPerUnit, description, inputs, outputs: [], composite: false, children: [] };
+function type(id, name, icon, timeSecPerUnit, description, inputs, w = 1, h = 1) {
+  return { id, name, icon, timeSecPerUnit, description, inputs, outputs: [], composite: false, children: [], w, h };
 }
 const inp = (sku, qty) => ({ sku, qty });
 const step = (kind, refId, inputs) => ({ kind, refId, ...(inputs ? { inputs } : {}) });

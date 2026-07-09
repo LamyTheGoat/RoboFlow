@@ -163,19 +163,31 @@ export function receiveDelivery(sku, qty) {
 }
 
 // ---- factory designer: placing real stations on the grid -----------------------
+// Stations occupy a w×h rectangle of cells (footprint comes from the type and
+// is snapshotted onto the station at install time).
+function rectError(x, y, w, h, ignoreId = null) {
+  const grid = state.factory.grid;
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x + w > grid.w || y + h > grid.h) {
+    return 'the station would stick out of the factory floor';
+  }
+  const clash = state.stations.some((s) => s.id !== ignoreId &&
+    x < s.x + (s.w ?? 1) && s.x < x + w &&
+    y < s.y + (s.h ?? 1) && s.y < y + h);
+  return clash ? 'that spot overlaps another station' : null;
+}
+
 export function placeStation({ typeId, name, x, y }) {
   const type = state.stationTypes.find((t) => t.id === typeId);
   if (!type) throw new Error(`unknown station type ${typeId}`);
-  const { w, h } = state.factory.grid;
-  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= w || y >= h) {
-    throw new Error('position is outside the factory floor');
-  }
-  if (state.stations.some((s) => s.x === x && s.y === y)) throw new Error('that spot is already occupied');
+  const w = type.w ?? 1;
+  const h = type.h ?? 1;
+  const err = rectError(x, y, w, h);
+  if (err) throw new Error(err);
 
   const station = {
     id: nextId('st'),
     name: name?.trim() || `${type.name} ${state.stations.filter((s) => s.typeId === typeId).length + 1}`,
-    typeId, x, y,
+    typeId, x, y, w, h,
     status: 'idle',
     currentOrderId: null,
     progress: 0,
@@ -205,13 +217,8 @@ export function updateStation(stationId, { name, x, y }) {
   if (!station) throw new Error(`unknown station ${stationId}`);
   if (name !== undefined && name.trim()) station.name = name.trim();
   if (x !== undefined && y !== undefined) {
-    const { w, h } = state.factory.grid;
-    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= w || y >= h) {
-      throw new Error('position is outside the factory floor');
-    }
-    if (state.stations.some((s) => s.id !== stationId && s.x === x && s.y === y)) {
-      throw new Error('that spot is already occupied');
-    }
+    const err = rectError(x, y, station.w ?? 1, station.h ?? 1, stationId);
+    if (err) throw new Error(err);
     station.x = x;
     station.y = y;
   }

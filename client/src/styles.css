@@ -231,6 +231,8 @@ td.num { font-variant-numeric: tabular-nums; }
 }
 .emoji-btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 3px 7px; font-size: 15px; }
 .emoji-btn.active { border-color: var(--accent); background: var(--accent-soft); }
+.footprint-preview { display: flex; flex-direction: column; gap: 2px; padding-bottom: 2px; }
+.footprint-cell { width: 14px; height: 14px; border-radius: 3px; background: var(--accent-soft); border: 1px solid rgba(57, 135, 229, 0.5); }
 
 /* ---- factory floor (top-down designer) ---- */
 .hint-bar {
@@ -285,6 +287,10 @@ td.num { font-variant-numeric: tabular-nums; }
 @keyframes faultblink { 50% { box-shadow: 0 0 4px rgba(208, 59, 59, 0.15); } }
 .tile.status-stopped { border-style: dashed; opacity: 0.75; }
 .tile.status-maintenance { border-color: rgba(236, 131, 90, 0.7); }
+.tile-order {
+  font-size: 9px; font-weight: 700; color: #7db4f0; background: var(--accent-soft);
+  border-radius: 10px; padding: 0 6px; margin-top: 2px;
+}
 .tile-progress {
   position: absolute; left: 5px; right: 5px; bottom: 4px; height: 4px; border-radius: 3px; background: var(--grid); overflow: hidden;
 }

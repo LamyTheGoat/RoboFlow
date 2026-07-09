@@ -20,7 +20,15 @@ export function Factory({ state }) {
 
   const boardW = GUTTER * 2 + grid.w * CELL;
   const boardH = grid.h * CELL;
-  const cellCenter = (s) => ({ x: GUTTER + s.x * CELL + CELL / 2, y: s.y * CELL + CELL / 2 });
+  const dims = (s) => ({ w: s.w ?? 1, h: s.h ?? 1 });
+  const cellCenter = (s) => {
+    const d = dims(s);
+    return { x: GUTTER + (s.x + d.w / 2) * CELL, y: (s.y + d.h / 2) * CELL };
+  };
+  const stationAt = (x, y) => stations.find((s) => {
+    const d = dims(s);
+    return x >= s.x && x < s.x + d.w && y >= s.y && y < s.y + d.h;
+  });
 
   // Pick one representative station per workflow step for the conveyor path.
   const { pathPoints, missingSteps } = useMemo(() => {
@@ -54,7 +62,7 @@ export function Factory({ state }) {
     for (const o of orders) {
       if (o.status === 'completed') {
         if (now - (o.completedAt ?? 0) < 3 * 60 * 1000) {
-          out.push({ o, x: boardW - GUTTER / 2 + ((shipped % 2) * 26 - 13), y: 40 + Math.floor(shipped / 2) * 30, done: true });
+          out.push({ o, x: boardW - GUTTER / 2, y: 40 + shipped * 26, done: true });
           shipped++;
         }
         continue;
@@ -62,9 +70,9 @@ export function Factory({ state }) {
       const st = stations.find((s) => s.currentOrderId === o.id);
       if (st) {
         const c = cellCenter(st);
-        out.push({ o, x: c.x, y: c.y + CELL / 2 + 4 });
+        out.push({ o, x: c.x, y: c.y + (dims(st).h * CELL) / 2 + 4 });
       } else {
-        out.push({ o, x: GUTTER / 2 + ((staged % 2) * 26 - 13), y: 40 + Math.floor(staged / 2) * 30, waiting: true });
+        out.push({ o, x: GUTTER / 2, y: 40 + staged * 26, waiting: true });
         staged++;
       }
     }
@@ -78,7 +86,7 @@ export function Factory({ state }) {
     const x = Math.floor(px / CELL);
     const y = Math.floor(py / CELL);
     if (x < 0 || y < 0 || x >= grid.w || y >= grid.h) return;
-    const hit = stations.find((s) => s.x === x && s.y === y);
+    const hit = stationAt(x, y);
     setError(null);
     try {
       if (mode.startsWith('place:')) {
@@ -112,9 +120,9 @@ export function Factory({ state }) {
         <button className={`chip${mode === 'select' ? ' active' : ''}`} onClick={() => setMode('select')}>🖱 Select</button>
         {stationTypes.map((t) => (
           <button key={t.id} className={`chip${mode === `place:${t.id}` ? ' active' : ''}`}
-            title={t.description}
+            title={`${t.description} — footprint ${t.w ?? 1}×${t.h ?? 1} cells`}
             onClick={() => setMode(mode === `place:${t.id}` ? 'select' : `place:${t.id}`)}>
-            {t.icon} {t.name}
+            {t.icon} {t.name} <span className="muted" style={{ fontSize: 10 }}>{t.w ?? 1}×{t.h ?? 1}</span>
           </button>
         ))}
         <button className={`chip${mode === 'remove' ? ' active' : ''}`} onClick={() => setMode(mode === 'remove' ? 'select' : 'remove')}>🗑 Remove</button>
@@ -129,7 +137,11 @@ export function Factory({ state }) {
       </div>
 
       {mode.startsWith('place:') && (
-        <div className="hint-bar">Click an empty cell to install a {typeById(state, mode.slice(6))?.icon} <b>{typeById(state, mode.slice(6))?.name}</b>. It becomes a real station immediately.</div>
+        <div className="hint-bar">
+          Click an empty area to install a {typeById(state, mode.slice(6))?.icon} <b>{typeById(state, mode.slice(6))?.name}</b>
+          {' '}({typeById(state, mode.slice(6))?.w ?? 1}×{typeById(state, mode.slice(6))?.h ?? 1} cells, anchored at the clicked top-left cell).
+          It becomes a real station immediately.
+        </div>
       )}
       {mode === 'remove' && <div className="hint-bar warn">Click a station to dismantle it (busy stations refuse).</div>}
       {moving && <div className="hint-bar">Click an empty cell to move <b>{selected?.name}</b> there.</div>}
@@ -165,13 +177,18 @@ export function Factory({ state }) {
           {stations.map((s) => {
             const order = orders.find((o) => o.id === s.currentOrderId);
             const type = typeById(state, s.typeId);
+            const d = dims(s);
             return (
               <div key={s.id}
                 className={`tile status-${s.status}${selectedId === s.id ? ' selected' : ''}`}
-                style={{ left: GUTTER + s.x * CELL + 3, top: s.y * CELL + 3, width: CELL - 6, height: CELL - 6 }}
-                title={`${s.name} — ${STATION_STATUS[s.status].label}${order ? ` · ${order.code}` : ''}`}>
-                <span className="tile-icon">{type?.icon}</span>
-                <span className="tile-name">{s.name}</span>
+                style={{
+                  left: GUTTER + s.x * CELL + 3, top: s.y * CELL + 3,
+                  width: d.w * CELL - 6, height: d.h * CELL - 6,
+                }}
+                title={`${s.name} (${d.w}×${d.h}) — ${STATION_STATUS[s.status].label}${order ? ` · ${order.code}` : ''}`}>
+                <span className="tile-icon" style={{ fontSize: 20 + Math.min(d.w, d.h) * 6 }}>{type?.icon}</span>
+                <span className="tile-name" style={{ fontSize: d.w > 1 ? 10 : 8.5 }}>{s.name}</span>
+                {order && d.h > 1 && <span className="tile-order">{order.code}</span>}
                 {s.status === 'running' && <div className="tile-progress"><div style={{ width: `${s.progress}%` }} /></div>}
               </div>
             );
@@ -193,7 +210,7 @@ export function Factory({ state }) {
             onChange={(e) => api.updateStation(selected.id, { name: e.target.value }).catch(() => {})} />
           <Badge meta={STATION_STATUS[selected.status]} />
           <span className="muted" style={{ fontSize: 12.5 }}>
-            {typeById(state, selected.typeId)?.name} · ({selected.x}, {selected.y}) · {selected.unitsToday} units today
+            {typeById(state, selected.typeId)?.name} · {selected.w ?? 1}×{selected.h ?? 1} cells at ({selected.x}, {selected.y}) · {selected.unitsToday} units today
             {selected.currentOrderId ? ` · working on ${orders.find((o) => o.id === selected.currentOrderId)?.code}` : ''}
           </span>
           <span style={{ flex: 1 }} />
