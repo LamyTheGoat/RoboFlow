@@ -24,6 +24,7 @@ export const ORDER_STATUS = {
   in_progress: { label: 'In progress', tone: 'good', icon: '▶' },
   on_hold: { label: 'On hold', tone: 'serious', icon: '⏸' },
   completed: { label: 'Completed', tone: 'accent', icon: '✓' },
+  cancelled: { label: 'Cancelled', tone: 'neutral', icon: '✕' },
 };
 
 export const ALERT_SEVERITY = {

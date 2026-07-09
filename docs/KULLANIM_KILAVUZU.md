@@ -68,9 +68,10 @@ Program açıldığında bir **giriş ekranı** karşılar. İki tür kullanıc�
 | **operator** (operatör) | Üretimi yönetmek: istasyon komutları, acil durdurma, sipariş girmek, uyarı onaylamak. Tasarım sayfaları ona **salt okunur**dur ("view only" yazar). |
 
 İlk kurulumda iki hazır kullanıcı gelir: `manager / manager123` ve
-`operator / operator123`. **Bu şifreleri ilk fırsatta değiştirin** (kurulumu
-yapan kişi `POST /api/auth/password` ile değiştirebilir). Sağ üstteki adınıza
-bitişik **Sign out** düğmesi oturumu kapatır.
+`operator / operator123`. **Bu şifreleri ilk fırsatta değiştirin** — sol
+menüdeki **Settings** sayfasında herkes kendi şifresini değiştirir; yönetici
+aynı sayfadan kullanıcı ekleyip silebilir (son yönetici silinemez). Sağ
+üstteki **Sign out** düğmesi oturumu kapatır.
 
 ---
 
@@ -126,9 +127,16 @@ Fabrikanızın haritası. Soldaki **📥 WAREHOUSE** şeridi deponun, sağdaki
   siparişlerdir; hangi istasyonda çalışıldığını gösterir ve iş ilerledikçe
   hareket eder. Bekleyenler depo şeridinde sıralanır, yeni bitenler sevkiyat
   şeridinde görünür.
-- **Zemini büyütmek/küçültmek:** sağ üstteki **⛶ Floor 28×16** düğmesine
+- **Zemini büyütmek/küçültmek:** sağ üstteki **⛶ Floor** düğmesine
   basın, yeni genişlik×derinlik girin, Apply deyin. Üzerinde istasyon kalan
   bir alanı kesmeye çalışırsanız sistem sizi uyarır ve izin vermez.
+- **Döndürme:** yerleştirme modundayken üstteki **↻ rotate** düğmesi 2×1'lik
+  bir istasyonu 1×2 (dikey) yerleştirmenizi sağlar.
+- **İstasyonu hatta adamak:** bir istasyonu seçince alt panelde **"Serves"**
+  satırı çıkar. Hiçbir şey seçili değilse istasyon her hatta çalışır; bir veya
+  **birden çok** iş akışı seçerseniz yalnızca o hatların işini kabul eder
+  (örn. bir Finishing Cell'i iki hatta birden adayabilirsiniz). İç içe bir
+  akışa adanan istasyon, o akışı içeren hatlara da hizmet eder.
 
 ### 5.3 Stations (İstasyonlar) — makine kartları ve komutlar
 
@@ -160,6 +168,10 @@ Bütün siparişlerin listesi. Her satırda:
 - **Due:** teslim tarihi; geçtiyse kırmızı ⚠ ile gösterilir.
 - **+ New order:** ürün hattını seçin, müşteri adı ve adet girin — sipariş
   kuyruğa girer ve uygun istasyon boşaldığı anda üretim başlar.
+- **✕ cancel:** siparişi iptal eder (verilmiş malzemeler tüketilmiş sayılır).
+- **↻ reroute:** bekleyen (queued / on hold) bir siparişi, ürün hattının
+  **güncel** iş akışı tasarımına göre yeniden rotalar — tasarımı düzelttikten
+  sonra takılı kalan siparişin kurtarma yoludur (ilerleme baştan başlar).
 
 ### 5.5 Design studio (Tasarım Stüdyosu) — işin mutfağı
 
@@ -224,7 +236,16 @@ bir akışa bağlarsınız.
 Bütün malzemelerin stok listesi. Çubuk, doluluk oranını; çubuktaki küçük çizgi
 **yeniden sipariş noktasını** gösterir. Stok bu çizginin altına inince sarı
 "Low" uyarısı düşer. Sağdaki akışta depo hareketleri (üretim için malzeme
-çekilmesi, gelen teslimatlar) listelenir.
+çekilmesi, gelen teslimatlar, üretilen yarı mamuller) listelenir.
+
+- **Sekmeler:** üstteki kategori düğmeleriyle listeyi süzün — **⟳ WIP / Half
+  products** sekmesi yalnızca yarı mamul tamponlarını gösterir.
+- **Satıra tıklayın** → sağda yönetim paneli açılır: stok girişi/düzeltme
+  (herkes yapabilir; gerçek mal kabulü budur), yeniden sipariş noktası ve
+  kapasite ayarı ile kalem silme (yalnız yönetici).
+- **🔒 rezerve:** bir siparişin kendi sonraki adımları için ürettiği yarı
+  mamul o siparişe rezerve edilir — başka sipariş onu kapamaz; miktarı
+  satırda görünür.
 
 ### 5.8 Alerts (Uyarılar)
 

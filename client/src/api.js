@@ -42,8 +42,17 @@ export const api = {
   updateFactory: (body) => send('PATCH', '/api/factory', body),
   createInventoryItem: (body) => send('POST', '/api/inventory', body),
   adoptMeasured: (typeId) => send('POST', `/api/station-types/${typeId}/adopt-measured`),
+  cancelOrder: (orderId) => send('POST', `/api/orders/${orderId}/cancel`),
+  rerouteOrder: (orderId) => send('POST', `/api/orders/${orderId}/reroute`),
+  adjustStock: (sku, qtyDelta) => send('PATCH', `/api/inventory/${sku}`, { qtyDelta }),
+  updateInventoryItem: (sku, body) => send('PATCH', `/api/inventory/${sku}`, body),
+  deleteInventoryItem: (sku) => send('DELETE', `/api/inventory/${sku}`),
   // auth
   me: () => send('GET', '/api/auth/me'),
   login: (username, password) => send('POST', '/api/auth/login', { username, password }),
   logout: () => send('POST', '/api/auth/logout'),
+  changePassword: (current, next) => send('POST', '/api/auth/password', { current, next }),
+  listUsers: () => send('GET', '/api/auth/users'),
+  addUser: (body) => send('POST', '/api/auth/users', body),
+  deleteUser: (username) => send('DELETE', `/api/auth/users/${username}`),
 };

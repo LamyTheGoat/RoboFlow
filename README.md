@@ -25,7 +25,20 @@ It is also a factory *design* tool:
   assemble → paint the whole unit again), and the same Paint Booth serves
   different products with different inputs per line. Workflow material totals
   are netted sequentially, so they show only the *external* purchasing need.
-  New half products are defined inline in the station designer.
+  New half products are defined inline in the station designer. Half products
+  a stage produces for its own order's later steps are **reserved** for that
+  order, so other orders can't snatch them from the buffer.
+- **Station ↔ workflow binding** — by default every station serves every line;
+  in the Factory panel a station can be dedicated to one or more workflows
+  (multi-select — a composite Finishing Cell can serve several lines at once).
+  A station bound to a nested workflow also serves the lines that contain it.
+  Placement supports **rotation** (2×1 ↔ 1×2). Orders can be **cancelled** at
+  any point, or **rerouted** to the project's current design while waiting.
+- **Warehouse management** — category tabs (incl. a WIP tab), stock
+  adjustments / goods-in for any user, item settings + catalog editing for
+  managers, reserved quantities shown per item.
+- **Users** — Settings page: change your password; managers add/remove
+  operator and manager accounts.
 - **Design studio → Workflows** — chain stations into workflows, reorder steps,
   override the materials any step uses. A workflow step can be a station *or a
   whole other workflow* (recursive nesting, cycle-guarded). Each product line

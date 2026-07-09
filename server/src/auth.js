@@ -135,6 +135,41 @@ authRouter.get('/me', (req, res) => {
   res.json(req.user);
 });
 
+// ---- user management (manager only) ----------------------------------------------
+const managerOnly = (req, res, next) =>
+  req.user?.role === 'manager' ? next() : res.status(403).json({ error: 'manager role required' });
+
+authRouter.get('/users', managerOnly, (_req, res) => {
+  res.json(users.map(({ username, role }) => ({ username, role })));
+});
+
+authRouter.post('/users', managerOnly, (req, res) => {
+  const username = String(req.body.username ?? '').trim().toLowerCase();
+  const role = req.body.role === 'manager' ? 'manager' : 'operator';
+  const password = String(req.body.password ?? '');
+  if (!/^[a-z0-9_.-]{2,24}$/.test(username)) {
+    return res.status(400).json({ error: 'username: 2-24 chars, letters/digits/._- only' });
+  }
+  if (users.some((u) => u.username === username)) return res.status(400).json({ error: 'that username already exists' });
+  if (password.length < 6) return res.status(400).json({ error: 'password must be at least 6 characters' });
+  users.push(makeUser(username, role, password));
+  saveUsers();
+  res.status(201).json({ username, role });
+});
+
+authRouter.delete('/users/:username', managerOnly, (req, res) => {
+  const username = req.params.username;
+  const user = users.find((u) => u.username === username);
+  if (!user) return res.status(404).json({ error: 'unknown user' });
+  if (username === req.user.username) return res.status(400).json({ error: 'you cannot delete yourself' });
+  if (user.role === 'manager' && users.filter((u) => u.role === 'manager').length === 1) {
+    return res.status(400).json({ error: 'cannot delete the last manager' });
+  }
+  users.splice(users.indexOf(user), 1);
+  saveUsers();
+  res.json({ ok: true });
+});
+
 authRouter.post('/password', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'login required' });
   const { current, next: nextPw } = req.body ?? {};

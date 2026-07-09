@@ -118,6 +118,18 @@ export function workflowTotals(workflowId) {
   };
 }
 
+// All workflow ids an order of `rootId` can touch (the root plus every nested
+// workflow). Used for station↔workflow binding: a station dedicated to
+// "Finishing & Dispatch" also serves orders of any line that nests it.
+export function collectWorkflowIds(rootId, acc = new Set()) {
+  if (acc.has(rootId) || !getWorkflow(rootId)) return acc;
+  acc.add(rootId);
+  for (const s of getWorkflow(rootId).steps ?? []) {
+    if (s.kind === 'workflow') collectWorkflowIds(s.refId, acc);
+  }
+  return acc;
+}
+
 // ---- cycle validation for edits ------------------------------------------------
 export function workflowReaches(fromId, targetId, path = new Set()) {
   if (fromId === targetId) return true;

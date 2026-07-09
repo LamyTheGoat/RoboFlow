@@ -83,7 +83,7 @@ function tick() {
   }
 
   // 5. Keep the plant loaded: new customer orders arrive.
-  const open = state.orders.filter((o) => o.status !== 'completed').length;
+  const open = state.orders.filter((o) => o.status !== 'completed' && o.status !== 'cancelled').length;
   if (open < 7 && chance(0.05)) {
     createOrder({
       projectId: pick(state.projects).id,

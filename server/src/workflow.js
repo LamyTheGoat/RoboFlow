@@ -10,7 +10,7 @@ import {
   recordThroughput,
   nextId,
 } from './store.js';
-import { typeServes, buildOrderStages } from './catalog.js';
+import { typeServes, buildOrderStages, collectWorkflowIds } from './catalog.js';
 
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 };
 
@@ -18,14 +18,50 @@ export function stationOfOrder(order) {
   return state.stations.find((s) => s.currentOrderId === order.id) ?? null;
 }
 
+// A station with an empty binding list serves every line; a bound station only
+// serves orders whose (root or nested) workflow is in its list.
+export function stationServesOrder(station, order) {
+  if (!station.servesWorkflowIds?.length) return true;
+  const ids = order.workflowIds ?? [];
+  return station.servesWorkflowIds.some((id) => ids.includes(id));
+}
+
 // Where is this order physically right now? Shown as "location" in the UI.
 export function orderLocation(order) {
+  if (order.status === 'cancelled') return 'Cancelled';
   if (order.status === 'completed') return 'Dispatch — shipped';
   const st = stationOfOrder(order);
   if (st) return st.name;
   if (order.status === 'on_hold') return 'Warehouse — awaiting material';
   if (order.stageIndex === 0 && order.stages[0]?.status === 'pending') return 'Warehouse — staged';
   return `Buffer before ${order.stages[order.stageIndex]?.name ?? '?'}`;
+}
+
+// ---- WIP reservations -----------------------------------------------------------
+// When a stage produces a half product that a LATER stage of the same order
+// will consume, that quantity is reserved for the order — another order can't
+// snatch it out of the buffer. Reserved stock is still part of item.qty; the
+// reservation only limits who may consume it.
+function reservationsOf(orderId) {
+  state.reservations ??= {};
+  return (state.reservations[orderId] ??= {});
+}
+
+export function totalReserved(sku, exceptOrderId = null) {
+  let total = 0;
+  for (const [orderId, skus] of Object.entries(state.reservations ?? {})) {
+    if (orderId !== exceptOrderId) total += skus[sku] ?? 0;
+  }
+  return +total.toFixed(2);
+}
+
+// Stock this order may use: free stock plus its own reservation.
+function availableFor(item, orderId) {
+  return +(item.qty - totalReserved(item.sku, orderId)).toFixed(2);
+}
+
+function releaseReservations(orderId) {
+  if (state.reservations?.[orderId]) delete state.reservations[orderId];
 }
 
 // Materials are consumed per stage, right when the stage starts, and each
@@ -37,7 +73,7 @@ function tryConsumeStageInputs(order, stage) {
   const missing = [];
   for (const inp of stage.inputs ?? []) {
     const item = state.inventory.find((i) => i.sku === inp.sku);
-    if (!item || item.qty < inp.qty * order.qty) missing.push(item?.name ?? inp.sku);
+    if (!item || availableFor(item, order.id) < inp.qty * order.qty) missing.push(item?.name ?? inp.sku);
   }
   if (missing.length) {
     if (order.status !== 'on_hold') {
@@ -51,6 +87,11 @@ function tryConsumeStageInputs(order, stage) {
     const amount = +(inp.qty * order.qty).toFixed(1);
     item.qty = +(item.qty - amount).toFixed(1);
     item.consumedToday = +(item.consumedToday + amount).toFixed(1);
+    const res = reservationsOf(order.id);
+    if (res[inp.sku]) {
+      res[inp.sku] = +Math.max(0, res[inp.sku] - amount).toFixed(2);
+      if (!res[inp.sku]) delete res[inp.sku];
+    }
     if (item.reorderPoint > 0 && item.qty <= item.reorderPoint && item.qty + amount > item.reorderPoint) {
       raiseAlert('warning', 'warehouse', `${item.name} below reorder point (${item.qty} ${item.unit} left)`);
     }
@@ -68,8 +109,20 @@ function produceStageOutputs(order, stage, station) {
     const item = state.inventory.find((i) => i.sku === out.sku);
     if (!item) continue;
     const amount = +(out.qty * order.qty).toFixed(1);
+    const before = item.qty;
     item.qty = Math.min(item.capacity, +(item.qty + amount).toFixed(1));
+    const added = +(item.qty - before).toFixed(1);
     made.push(`${amount} ${item.unit} ${item.name}`);
+
+    // Reserve for this order whatever its own later stages will need.
+    const futureNeed = order.stages
+      .slice(order.stageIndex + 1)
+      .filter((s) => s.status === 'pending')
+      .reduce((sum, s) => sum + (s.inputs ?? []).filter((i) => i.sku === out.sku).reduce((a, i) => a + i.qty * order.qty, 0), 0);
+    const res = reservationsOf(order.id);
+    const already = res[out.sku] ?? 0;
+    const reserve = +Math.min(added, Math.max(0, futureNeed - already)).toFixed(2);
+    if (reserve > 0) res[out.sku] = +(already + reserve).toFixed(2);
   }
   if (made.length) logEvent('warehouse', station.name, `Produced ${made.join(', ')} → stock`);
 }
@@ -85,11 +138,12 @@ export function dispatchOrders() {
 
   for (const order of waiting) {
     const stage = order.stages[order.stageIndex];
-    const station = state.stations.find((s) => s.status === 'idle' && typeServes(s.typeId, stage.typeId));
+    const canServe = (s) => typeServes(s.typeId, stage.typeId) && stationServesOrder(s, order);
+    const station = state.stations.find((s) => s.status === 'idle' && canServe(s));
     if (!station) {
-      if (!stage.noStationAlerted && !state.stations.some((s) => typeServes(s.typeId, stage.typeId))) {
+      if (!stage.noStationAlerted && !state.stations.some(canServe)) {
         stage.noStationAlerted = true;
-        raiseAlert('warning', order.code, `No station on the floor can perform "${stage.name}" — place one in the Factory designer`);
+        raiseAlert('warning', order.code, `No station available for "${stage.name}" on this line — place one in the Factory designer or adjust station↔workflow bindings`);
       }
       continue;
     }
@@ -157,10 +211,59 @@ export function completeStage(station) {
   if (order.stageIndex >= order.stages.length) {
     order.status = 'completed';
     order.completedAt = Date.now();
+    releaseReservations(order.id);
     recordThroughput(order.qty);
     logEvent('order', order.code, `Order completed — ${order.qty} units ready for dispatch`);
   }
   dispatchOrders();
+}
+
+export function cancelOrder(orderId, issuedBy = 'operator') {
+  const order = findOrder(orderId);
+  if (!order) throw new Error(`unknown order ${orderId}`);
+  if (order.status === 'completed' || order.status === 'cancelled') throw new Error(`order is already ${order.status}`);
+
+  const station = stationOfOrder(order);
+  if (station) {
+    station.currentOrderId = null;
+    station.progress = 0;
+    if (station.status === 'running') station.status = 'idle';
+    for (const r of state.robots) if (r.stationId === station.id && r.status === 'working') r.status = 'idle';
+  }
+  const stage = order.stages[order.stageIndex];
+  if (stage?.status === 'active') {
+    stage.status = 'pending';
+    stage.startedAt = null;
+    stage.stationId = null;
+  }
+  order.status = 'cancelled';
+  order.cancelledAt = Date.now();
+  releaseReservations(order.id);
+  const consumedAny = order.stages.some((s) => s.inputsConsumed);
+  logEvent('order', issuedBy, `${order.code} cancelled${consumedAny ? ' (materials already issued stay consumed)' : ''}`);
+  dispatchOrders();
+  return order;
+}
+
+// Rebuild a waiting order's routing from the project's CURRENT workflow —
+// the escape hatch after fixing a design. Progress restarts from step one.
+export function rerouteOrder(orderId, issuedBy = 'operator') {
+  const order = findOrder(orderId);
+  if (!order) throw new Error(`unknown order ${orderId}`);
+  if (order.status !== 'queued' && order.status !== 'on_hold') {
+    throw new Error('only waiting orders (queued / on hold) can be rerouted — stop or let the current step finish first');
+  }
+  const project = state.projects.find((p) => p.id === order.projectId);
+  const stages = buildOrderStages(project.workflowId);
+  if (!stages.length) throw new Error(`project ${project.name} has no runnable workflow assigned`);
+  order.stages = stages;
+  order.stageIndex = 0;
+  order.status = 'queued';
+  order.workflowIds = [...collectWorkflowIds(project.workflowId)];
+  releaseReservations(order.id);
+  logEvent('order', issuedBy, `${order.code} rerouted to the current "${state.workflows.find((w) => w.id === project.workflowId)?.name}" design`);
+  dispatchOrders();
+  return order;
 }
 
 let orderSeq = 1007;
@@ -180,6 +283,7 @@ export function createOrder({ projectId, customer, qty, priority = 'normal', due
     status: 'queued',
     stageIndex: 0,
     stages,
+    workflowIds: [...collectWorkflowIds(project.workflowId)],
     createdAt: now,
     dueDate: now + dueInDays * 24 * 60 * 60 * 1000,
     completedAt: null,
@@ -212,11 +316,11 @@ function rectError(x, y, w, h, ignoreId = null) {
   return clash ? 'that spot overlaps another station' : null;
 }
 
-export function placeStation({ typeId, name, x, y }) {
+export function placeStation({ typeId, name, x, y, rotated = false }) {
   const type = state.stationTypes.find((t) => t.id === typeId);
   if (!type) throw new Error(`unknown station type ${typeId}`);
-  const w = type.w ?? 1;
-  const h = type.h ?? 1;
+  const w = rotated ? (type.h ?? 1) : (type.w ?? 1);
+  const h = rotated ? (type.w ?? 1) : (type.h ?? 1);
   const err = rectError(x, y, w, h);
   if (err) throw new Error(err);
 
@@ -224,6 +328,7 @@ export function placeStation({ typeId, name, x, y }) {
     id: nextId('st'),
     name: name?.trim() || `${type.name} ${state.stations.filter((s) => s.typeId === typeId).length + 1}`,
     typeId, x, y, w, h,
+    servesWorkflowIds: [], // empty = serves every line
     status: 'idle',
     currentOrderId: null,
     progress: 0,
@@ -248,7 +353,7 @@ export function placeStation({ typeId, name, x, y }) {
   return station;
 }
 
-export function updateStation(stationId, { name, x, y }) {
+export function updateStation(stationId, { name, x, y, servesWorkflowIds }) {
   const station = state.stations.find((s) => s.id === stationId);
   if (!station) throw new Error(`unknown station ${stationId}`);
   if (name !== undefined && name.trim()) station.name = name.trim();
@@ -257,6 +362,15 @@ export function updateStation(stationId, { name, x, y }) {
     if (err) throw new Error(err);
     station.x = x;
     station.y = y;
+  }
+  if (servesWorkflowIds !== undefined) {
+    if (!Array.isArray(servesWorkflowIds)) throw new Error('servesWorkflowIds must be an array');
+    for (const id of servesWorkflowIds) {
+      if (!state.workflows.some((w) => w.id === id)) throw new Error(`unknown workflow ${id}`);
+    }
+    station.servesWorkflowIds = [...new Set(servesWorkflowIds)];
+    logEvent('designer', 'factory', `${station.name} now serves ${station.servesWorkflowIds.length ? station.servesWorkflowIds.length + ' selected line(s)' : 'every line'}`);
+    dispatchOrders();
   }
   return station;
 }

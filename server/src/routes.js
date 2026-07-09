@@ -6,6 +6,7 @@ import { requireUser, requireManager, gatewayGuard } from './auth.js';
 import {
   createOrder, orderLocation, dispatchOrders,
   placeStation, updateStation, removeStation,
+  cancelOrder, rerouteOrder, totalReserved,
 } from './workflow.js';
 import {
   flattenWorkflow, workflowTotals, measuredSecPerUnit,
@@ -22,6 +23,7 @@ export function serializeState() {
     robots: state.robots.map(({ _tempAlerted, ...r }) => r),
     workflows: state.workflows.map((w) => ({ ...w, flat: flattenWorkflow(w.id), totals: workflowTotals(w.id) })),
     stationTypes: state.stationTypes.map((t) => ({ ...t, measuredSecPerUnit: t.composite ? null : measuredSecPerUnit(t.id) })),
+    inventory: state.inventory.map((i) => ({ ...i, reservedQty: totalReserved(i.sku) })),
   };
 }
 
@@ -114,6 +116,8 @@ api.post('/orders', handle((req) => {
   return { __created: true, body: createOrder({ projectId, customer, qty: Number(qty), priority, dueInDays }) };
 }));
 api.post('/orders/:id/priority', handle((req) => setOrderPriority(req.params.id, req.body.priority)));
+api.post('/orders/:id/cancel', handle((req) => cancelOrder(req.params.id, req.user.username)));
+api.post('/orders/:id/reroute', handle((req) => rerouteOrder(req.params.id, req.user.username)));
 
 // ---- station type designer --------------------------------------------------------
 function readTypeBody(body, selfId) {
@@ -211,15 +215,16 @@ api.delete('/workflows/:id', requireManager, handle((req) => {
 
 // ---- factory floor (designer page) ---------------------------------------------------
 api.post('/stations', requireManager, handle((req) => {
-  const { typeId, name, x, y } = req.body;
-  return { __created: true, body: placeStation({ typeId, name, x: Number(x), y: Number(y) }) };
+  const { typeId, name, x, y, rotated } = req.body;
+  return { __created: true, body: placeStation({ typeId, name, x: Number(x), y: Number(y), rotated: !!rotated }) };
 }));
 api.patch('/stations/:id', requireManager, handle((req) => {
-  const { name, x, y } = req.body;
+  const { name, x, y, servesWorkflowIds } = req.body;
   return updateStation(req.params.id, {
     name,
     x: x !== undefined ? Number(x) : undefined,
     y: y !== undefined ? Number(y) : undefined,
+    servesWorkflowIds,
   });
 }));
 api.delete('/stations/:id', requireManager, handle((req) => removeStation(req.params.id)));
@@ -235,6 +240,45 @@ api.post('/station-types/:id/adopt-measured', requireManager, handle((req) => {
   type.timeSecPerUnit = measured;
   logEvent('designer', 'station-lab', `${type.icon} ${type.name}: designed time updated ${old}s → ${measured}s per unit (measured)`);
   return type;
+}));
+
+// Stock adjustments (goods-in, corrections) are plant operations any logged-in
+// user may do; changing an item's definition or deleting it is manager work.
+api.patch('/inventory/:sku', handle((req) => {
+  const item = state.inventory.find((i) => i.sku === req.params.sku);
+  if (!item) throw new Error('unknown item');
+  if (req.body.qtyDelta !== undefined) {
+    const delta = Number(req.body.qtyDelta);
+    if (!Number.isFinite(delta) || delta === 0) throw new Error('qtyDelta must be a non-zero number');
+    item.qty = Math.max(0, Math.min(item.capacity, +(item.qty + delta).toFixed(1)));
+    logEvent('warehouse', req.user.username, `Stock ${delta > 0 ? 'received' : 'adjusted'}: ${delta > 0 ? '+' : ''}${delta} ${item.unit} ${item.name} → ${item.qty} ${item.unit}`);
+    dispatchOrders();
+  }
+  const definitionTouched = ['name', 'reorderPoint', 'capacity'].some((k) => req.body[k] !== undefined);
+  if (definitionTouched) {
+    if (req.user.role !== 'manager') throw new Error('manager role required to edit item settings');
+    if (req.body.name !== undefined && String(req.body.name).trim()) item.name = String(req.body.name).trim().slice(0, 60);
+    if (req.body.reorderPoint !== undefined) item.reorderPoint = Math.max(0, Number(req.body.reorderPoint) || 0);
+    if (req.body.capacity !== undefined) item.capacity = Math.max(10, Number(req.body.capacity) || item.capacity);
+  }
+  return item;
+}));
+
+api.delete('/inventory/:sku', requireManager, handle((req) => {
+  const sku = req.params.sku;
+  const item = state.inventory.find((i) => i.sku === sku);
+  if (!item) throw new Error('unknown item');
+  const usesIt = (list) => (list ?? []).some((x) => x.sku === sku);
+  const type = state.stationTypes.find((t) => usesIt(t.inputs) || usesIt(t.outputs));
+  if (type) throw new Error(`station type "${type.name}" uses this item`);
+  const wf = state.workflows.find((w) => w.steps.some((s) => usesIt(s.inputs) || usesIt(s.outputs)));
+  if (wf) throw new Error(`workflow "${wf.name}" uses this item`);
+  const order = state.orders.find((o) => o.status !== 'completed' && o.status !== 'cancelled' &&
+    o.stages.some((s) => usesIt(s.inputs) || usesIt(s.outputs)));
+  if (order) throw new Error(`open order ${order.code} still uses this item`);
+  state.inventory = state.inventory.filter((i) => i.sku !== sku);
+  logEvent('warehouse', req.user.username, `Item removed from catalog: ${item.name}`);
+  return { ok: true };
 }));
 
 // New warehouse item — mainly for defining half products from the designer.

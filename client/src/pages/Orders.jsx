@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { Badge, StagePips, ORDER_STATUS, fmtDate } from '../ui.jsx';
 
-const FILTERS = ['all', 'in_progress', 'queued', 'on_hold', 'completed'];
+const FILTERS = ['all', 'in_progress', 'queued', 'on_hold', 'completed', 'cancelled'];
 
 export function Orders({ state }) {
   const { orders, projects, now } = state;
@@ -29,7 +29,7 @@ export function Orders({ state }) {
     <>
       <div className="page-head">
         <h1>Orders</h1>
-        <span className="sub">{orders.filter((o) => o.status !== 'completed').length} open · {orders.filter((o) => o.status === 'completed').length} completed</span>
+        <span className="sub">{orders.filter((o) => o.status !== 'completed' && o.status !== 'cancelled').length} open · {orders.filter((o) => o.status === 'completed').length} completed</span>
         <span style={{ flex: 1 }} />
         <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>+ New order</button>
       </div>
@@ -70,7 +70,7 @@ export function Orders({ state }) {
           <thead>
             <tr>
               <th>Order</th><th>Product</th><th>Customer</th><th>Qty</th><th>Priority</th>
-              <th>Status</th><th>Workflow</th><th>Location</th><th>Due</th>
+              <th>Status</th><th>Workflow</th><th>Location</th><th>Due</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -93,10 +93,24 @@ export function Orders({ state }) {
                   <td><StagePips stages={o.stages} /></td>
                   <td className="muted">{o.location}</td>
                   <td className={overdue ? 'ink-critical' : 'muted'}>{fmtDate(o.dueDate)}{overdue ? ' ⚠' : ''}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {(o.status === 'queued' || o.status === 'on_hold') && (
+                      <button className="btn btn-tiny" title="Rebuild this order's routing from the project's current workflow design (progress restarts)"
+                        onClick={() => window.confirm(`Reroute ${o.code} to the current workflow design? Progress restarts from step 1.`) && api.rerouteOrder(o.id).catch((e) => alert(e.message))}>
+                        ↻ reroute
+                      </button>
+                    )}
+                    {o.status !== 'completed' && o.status !== 'cancelled' && (
+                      <button className="btn btn-tiny btn-danger" style={{ marginLeft: 4 }}
+                        onClick={() => window.confirm(`Cancel ${o.code}? Materials already issued stay consumed.`) && api.cancelOrder(o.id).catch((e) => alert(e.message))}>
+                        ✕ cancel
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
-            {visible.length === 0 && <tr><td colSpan="9" className="empty">No orders match this filter.</td></tr>}
+            {visible.length === 0 && <tr><td colSpan="10" className="empty">No orders match this filter.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -2,7 +2,7 @@
 // workflows (including one nested workflow as a recursion example), physical
 // stations placed on the factory grid, and three product lines.
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 export const GRID_W = 20;
 export const GRID_H = 12;
 
@@ -154,6 +154,17 @@ export function buildSeedState() {
     path.delete(wfId);
     return out;
   };
+  const workflowIdsFor = (projectId) => {
+    const acc = new Set();
+    const walk = (wfId) => {
+      const wf = workflows.find((w) => w.id === wfId);
+      if (!wf || acc.has(wfId)) return;
+      acc.add(wfId);
+      for (const s of wf.steps ?? []) if (s.kind === 'workflow') walk(s.refId);
+    };
+    walk(projects.find((p) => p.id === projectId).workflowId);
+    return [...acc];
+  };
   const stagesFor = (projectId) =>
     flatten(projects.find((p) => p.id === projectId).workflowId).map((s) => ({
       ...s, status: 'pending', startedAt: null, finishedAt: null, stationId: null, inputsConsumed: false,
@@ -162,6 +173,7 @@ export function buildSeedState() {
   const order = (id, code, projectId, customer, qty, priority, created, due) => ({
     id, code, projectId, customer, qty, priority,
     status: 'queued', stageIndex: 0, stages: stagesFor(projectId),
+    workflowIds: workflowIdsFor(projectId),
     createdAt: created, dueDate: due, completedAt: null,
   });
 
@@ -185,6 +197,7 @@ export function buildSeedState() {
     orders,
     inventory,
     alerts: [],
+    reservations: {},
     events: [
       { id: 'evt_seed', ts: now, type: 'system', source: 'control-room', message: 'Control room online — state initialized' },
     ],
@@ -206,6 +219,7 @@ function station(id, name, typeId, x, y) {
   return {
     id, name, typeId, x, y,
     status: 'idle', // idle | running | paused | stopped | fault | maintenance
+    servesWorkflowIds: [], // empty = serves every line
     currentOrderId: null,
     progress: 0,
     utilization: 0,

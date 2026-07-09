@@ -15,6 +15,7 @@ export function Factory({ state, user }) {
   const [wfId, setWfId] = useState(workflows[0]?.id ?? '');
   const [error, setError] = useState(null);
   const [hover, setHover] = useState(null); // {x, y} grid cell under the cursor
+  const [rotated, setRotated] = useState(false); // swap footprint w/h when placing
   const [floorForm, setFloorForm] = useState(null); // {w, h} while editing floor size
   const boardRef = useRef(null);
 
@@ -70,6 +71,7 @@ export function Factory({ state, user }) {
         }
         continue;
       }
+      if (o.status === 'cancelled') continue;
       const st = stations.find((s) => s.currentOrderId === o.id);
       if (st) {
         const c = cellCenter(st);
@@ -95,8 +97,8 @@ export function Factory({ state, user }) {
     let w, h;
     if (mode.startsWith('place:')) {
       const t = typeById(state, mode.slice(6));
-      w = t?.w ?? 1;
-      h = t?.h ?? 1;
+      w = rotated ? (t?.h ?? 1) : (t?.w ?? 1);
+      h = rotated ? (t?.w ?? 1) : (t?.h ?? 1);
     } else if (moving && selected) {
       ({ w, h } = dims(selected));
     } else {
@@ -109,7 +111,7 @@ export function Factory({ state, user }) {
       return hover.x < s.x + d.w && s.x < hover.x + w && hover.y < s.y + d.h && s.y < hover.y + h;
     });
     return { x: hover.x, y: hover.y, w, h, valid: inBounds && !clash };
-  }, [hover, mode, moving, selectedId, stations]);
+  }, [hover, mode, moving, selectedId, stations, rotated]);
 
   async function onBoardClick(e) {
     const cell = cellFromEvent(e);
@@ -120,7 +122,7 @@ export function Factory({ state, user }) {
     try {
       if (mode.startsWith('place:')) {
         if (hit) throw new Error('that spot is occupied');
-        await api.placeStation({ typeId: mode.slice(6), x, y });
+        await api.placeStation({ typeId: mode.slice(6), x, y, rotated });
       } else if (mode === 'remove') {
         if (hit) await api.removeStation(hit.id);
       } else if (moving && selected && !hit) {
@@ -188,10 +190,13 @@ export function Factory({ state, user }) {
       </div>
 
       {mode.startsWith('place:') && (
-        <div className="hint-bar">
-          Click an empty area to install a {typeById(state, mode.slice(6))?.icon} <b>{typeById(state, mode.slice(6))?.name}</b>
-          {' '}({typeById(state, mode.slice(6))?.w ?? 1}×{typeById(state, mode.slice(6))?.h ?? 1} cells, anchored at the clicked top-left cell).
-          It becomes a real station immediately.
+        <div className="hint-bar" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span>
+            Click an empty area to install a {typeById(state, mode.slice(6))?.icon} <b>{typeById(state, mode.slice(6))?.name}</b>
+            {' '}({(rotated ? typeById(state, mode.slice(6))?.h : typeById(state, mode.slice(6))?.w) ?? 1}×{(rotated ? typeById(state, mode.slice(6))?.w : typeById(state, mode.slice(6))?.h) ?? 1} cells).
+            It becomes a real station immediately.
+          </span>
+          <button className="btn btn-tiny" onClick={() => setRotated(!rotated)}>↻ rotate</button>
         </div>
       )}
       {mode === 'remove' && <div className="hint-bar warn">Click a station to dismantle it (busy stations refuse).</div>}
@@ -266,7 +271,8 @@ export function Factory({ state, user }) {
       </div>
 
       {selected && (
-        <div className="card mt" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="card mt" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 24 }}>{typeById(state, selected.typeId)?.icon}</span>
           <input className="mini-input" style={{ fontWeight: 700, width: 200 }} value={selected.name} readOnly={!canDesign}
             onChange={(e) => canDesign && api.updateStation(selected.id, { name: e.target.value }).catch(() => {})} />
@@ -279,10 +285,36 @@ export function Factory({ state, user }) {
           {canDesign && <button className="btn" onClick={() => setMoving(!moving)}>{moving ? 'Cancel move' : '✥ Move'}</button>}
           {canDesign && (
             <button className="btn btn-danger" disabled={!!selected.currentOrderId}
-              onClick={() => api.removeStation(selected.id).then(() => setSelectedId(null)).catch((e) => setError(e.message))}>
+              onClick={() => window.confirm(`Dismantle ${selected.name}? Its measured-pace history is lost.`) &&
+                api.removeStation(selected.id).then(() => setSelectedId(null)).catch((e) => setError(e.message))}>
               Dismantle
             </button>
           )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="muted" style={{ fontSize: 12 }}>
+            Serves:{!selected.servesWorkflowIds?.length && <b style={{ color: 'var(--ink-2)' }}> every line</b>}
+          </span>
+          {workflows.map((w) => {
+            const on = selected.servesWorkflowIds?.includes(w.id);
+            return (
+              <button key={w.id} className={`chip${on ? ' active' : ''}`} style={{ padding: '2px 10px', fontSize: 11.5 }}
+                disabled={!canDesign}
+                title={canDesign ? 'Toggle whether this station accepts work from this line' : 'manager role required'}
+                onClick={() => {
+                  const cur = selected.servesWorkflowIds ?? [];
+                  const next = on ? cur.filter((id) => id !== w.id) : [...cur, w.id];
+                  api.updateStation(selected.id, { servesWorkflowIds: next }).catch((e) => setError(e.message));
+                }}>
+                {on ? '✓ ' : ''}{w.name}
+              </button>
+            );
+          })}
+          <span className="muted" style={{ fontSize: 11 }}>
+            (none selected = accepts work from every line; a station bound to a nested workflow also serves lines that contain it)
+          </span>
+        </div>
         </div>
       )}
     </>

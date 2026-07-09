@@ -11,6 +11,7 @@ import { Workflows } from './pages/Workflows.jsx';
 import { Projects } from './pages/Projects.jsx';
 import { Warehouse } from './pages/Warehouse.jsx';
 import { Alerts } from './pages/Alerts.jsx';
+import { Settings } from './pages/Settings.jsx';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: '▦' },
@@ -21,6 +22,7 @@ const PAGES = [
   { id: 'projects', label: 'Projects', icon: '◫' },
   { id: 'warehouse', label: 'Warehouse', icon: '▤' },
   { id: 'alerts', label: 'Alerts', icon: '⚠' },
+  { id: 'settings', label: 'Settings', icon: '⛭' },
 ];
 
 export default function App() {
@@ -63,7 +65,7 @@ function ControlRoom({ user, onLogout }) {
   const openAlerts = state.alerts.filter((a) => !a.acknowledged).length;
   const counts = {
     stations: state.stations.filter((s) => s.status === 'running').length,
-    orders: state.orders.filter((o) => o.status !== 'completed').length,
+    orders: state.orders.filter((o) => o.status !== 'completed' && o.status !== 'cancelled').length,
     alerts: openAlerts,
   };
 
@@ -76,6 +78,7 @@ function ControlRoom({ user, onLogout }) {
   const Page = {
     overview: Overview, factory: Factory, stations: Stations, orders: Orders,
     workflows: Workflows, projects: Projects, warehouse: Warehouse, alerts: Alerts,
+    settings: Settings,
   }[page] ?? Overview;
 
   return (
