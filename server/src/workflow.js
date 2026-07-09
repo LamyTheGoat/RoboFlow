@@ -134,7 +134,8 @@ export function dispatchOrders() {
     .filter((o) => (o.status === 'queued' || o.status === 'on_hold' || o.status === 'in_progress') &&
       o.stageIndex < o.stages.length &&
       o.stages[o.stageIndex].status !== 'active')
-    .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.dueDate - b.dueDate);
+    .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.dueDate - b.dueDate ||
+      (a.lotSeq ?? 0) - (b.lotSeq ?? 0)); // within a lot, earlier batches flow first
 
   for (const order of waiting) {
     const stage = order.stages[order.stageIndex];
@@ -297,31 +298,53 @@ export function rerouteOrder(orderId, issuedBy = 'operator') {
 }
 
 let orderSeq = 1007;
-export function createOrder({ projectId, customer, qty, priority = 'normal', dueInDays = 7 }) {
+// transferBatch (flow mode): split the order into a lot of small batches that
+// walk the workflow independently. Each batch occupies its own station, so
+// while batch 1 is at step 3, batch 2 can be at step 2 and batch 3 at step 1 —
+// a real production pipeline. 0 / omitted = classic single batch.
+export function createOrder({ projectId, customer, qty, priority = 'normal', dueInDays = 7, transferBatch = 0 }) {
   const project = state.projects.find((p) => p.id === projectId);
   if (!project) throw new Error(`unknown project ${projectId}`);
-  const stages = buildOrderStages(project.workflowId);
-  if (!stages.length) throw new Error(`project ${project.name} has no runnable workflow assigned`);
+  if (buildOrderStages(project.workflowId).length === 0) {
+    throw new Error(`project ${project.name} has no runnable workflow assigned`);
+  }
   const now = Date.now();
-  const order = {
-    id: `ord_${orderSeq}`,
-    code: `ORD-${orderSeq++}`,
-    projectId,
-    customer,
-    qty,
-    priority,
-    status: 'queued',
-    stageIndex: 0,
-    stages,
-    workflowIds: [...collectWorkflowIds(project.workflowId)],
-    createdAt: now,
-    dueDate: now + dueInDays * 24 * 60 * 60 * 1000,
-    completedAt: null,
-  };
-  state.orders.unshift(order);
-  logEvent('order', order.code, `New order: ${qty}× ${project.product} for ${customer}`);
+  const seq = orderSeq++;
+  const baseCode = `ORD-${seq}`;
+  const batchSize = Math.floor(Number(transferBatch) || 0);
+  const flowing = batchSize > 0 && batchSize < qty;
+  const count = flowing ? Math.ceil(qty / batchSize) : 1;
+  const lotId = flowing ? `lot_${seq}` : null;
+
+  const made = [];
+  let remaining = qty;
+  for (let i = 0; i < count; i++) {
+    const batchQty = flowing ? Math.min(batchSize, remaining) : qty;
+    remaining -= batchQty;
+    made.push({
+      id: flowing ? `ord_${seq}b${i + 1}` : `ord_${seq}`,
+      code: flowing ? `${baseCode}·${i + 1}` : baseCode,
+      projectId,
+      customer,
+      qty: batchQty,
+      priority,
+      status: 'queued',
+      stageIndex: 0,
+      stages: buildOrderStages(project.workflowId), // fresh snapshot per batch
+      workflowIds: [...collectWorkflowIds(project.workflowId)],
+      ...(flowing ? { lotId, lotSeq: i + 1, lotCount: count, lotQty: qty } : {}),
+      createdAt: now,
+      dueDate: now + dueInDays * 24 * 60 * 60 * 1000,
+      completedAt: null,
+    });
+  }
+  // unshift in reverse so batch 1 ends up first in the list
+  for (let i = made.length - 1; i >= 0; i--) state.orders.unshift(made[i]);
+  logEvent('order', baseCode, flowing
+    ? `New order: ${qty}× ${project.product} for ${customer} — flowing in ${count} batches of ≤${batchSize}`
+    : `New order: ${qty}× ${project.product} for ${customer}`);
   dispatchOrders();
-  return order;
+  return made[0];
 }
 
 export function receiveDelivery(sku, qty) {

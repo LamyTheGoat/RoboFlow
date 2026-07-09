@@ -127,9 +127,9 @@ api.post('/emergency-stop', handle((req) => ({ stations: emergencyStop(req.user.
 api.post('/alerts/:id/ack', handle((req) => acknowledgeAlert(req.params.id, req.user.username)));
 
 api.post('/orders', handle((req) => {
-  const { projectId, customer, qty, priority, dueInDays } = req.body;
+  const { projectId, customer, qty, priority, dueInDays, transferBatch } = req.body;
   if (!projectId || !customer || !qty) throw new Error('projectId, customer and qty are required');
-  return { __created: true, body: createOrder({ projectId, customer, qty: Number(qty), priority, dueInDays }) };
+  return { __created: true, body: createOrder({ projectId, customer, qty: Number(qty), priority, dueInDays, transferBatch }) };
 }));
 api.post('/orders/:id/priority', handle((req) => setOrderPriority(req.params.id, req.body.priority)));
 api.post('/orders/:id/cancel', handle((req) => cancelOrder(req.params.id, req.user.username)));
