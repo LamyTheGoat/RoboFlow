@@ -314,6 +314,9 @@ export function createOrder({ projectId, customer, qty, priority = 'normal', due
   const batchSize = Math.floor(Number(transferBatch) || 0);
   const flowing = batchSize > 0 && batchSize < qty;
   const count = flowing ? Math.ceil(qty / batchSize) : 1;
+  if (count > 50) {
+    throw new Error(`that would create ${count} batches — use a batch size of at least ${Math.ceil(qty / 50)}`);
+  }
   const lotId = flowing ? `lot_${seq}` : null;
 
   const made = [];

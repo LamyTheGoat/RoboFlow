@@ -194,14 +194,16 @@ export function Orders({ state }) {
             </select>
           </label>
           <label className="field" title="0 = the whole order moves as one batch. A smaller number splits it into batches that pipeline through the stations — batch 2 enters step 1 while batch 1 is already at step 2.">
-            Flow — batch size
-            <select value={form.transferBatch} onChange={(e) => setForm({ ...form, transferBatch: Number(e.target.value) })}>
-              <option value="0">off — single batch</option>
-              <option value="1">flow in batches of 1</option>
-              <option value="2">batches of 2</option>
-              <option value="5">batches of 5</option>
-              <option value="10">batches of 10</option>
-            </select>
+            Flow — batch size (0 = off)
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="number" min="0" max={form.qty} value={form.transferBatch} style={{ width: 90 }}
+                onChange={(e) => setForm({ ...form, transferBatch: Math.max(0, Number(e.target.value)) })} />
+              <span className="muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                {form.transferBatch > 0 && form.transferBatch < form.qty
+                  ? `→ ${Math.ceil(form.qty / form.transferBatch)} batches pipeline`
+                  : 'single batch'}
+              </span>
+            </div>
           </label>
           <button className="btn btn-primary" type="submit">Create order</button>
           {error && <span className="ink-critical" style={{ fontSize: 12.5 }}>{error}</span>}

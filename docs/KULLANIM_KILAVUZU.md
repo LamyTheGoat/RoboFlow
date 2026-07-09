@@ -168,6 +168,14 @@ Bütün siparişlerin listesi. Her satırda:
 - **Due:** teslim tarihi; geçtiyse kırmızı ⚠ ile gösterilir.
 - **+ New order:** ürün hattını seçin, müşteri adı ve adet girin — sipariş
   kuyruğa girer ve uygun istasyon boşaldığı anda üretim başlar.
+- **Flow — batch size (akış modu):** 0 bırakırsanız sipariş tek parti olarak
+  ilerler (bütün adet bir istasyondan bitmeden diğerine geçmez). Bir sayı
+  girerseniz (serbestçe seçebilirsiniz) sipariş o büyüklükte partilere bölünür
+  ve partiler hattı **boru hattı gibi** akar: 1. parti kaynaktayken 2. parti
+  kesime girer. Küçük parti = daha akıcı üretim, daha çok kayıt; alan
+  yanındaki not kaç parti oluşacağını canlı gösterir (en fazla 50 parti).
+  Listede akışlı sipariş ⇶ rozetiyle tek satırda toplanır; tıklayınca
+  partileri açılır, "cancel lot" hepsini iptal eder.
 - **✕ cancel:** siparişi iptal eder (verilmiş malzemeler tüketilmiş sayılır).
 - **↻ reroute:** bekleyen (queued / on hold) bir siparişi, ürün hattının
   **güncel** iş akışı tasarımına göre yeniden rotalar — tasarımı düzelttikten
