@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { api } from '../api.js';
-import { Badge, Bar, STATION_STATUS, ROBOT_STATUS, timeAgo } from '../ui.jsx';
+import { Badge, Bar, STATION_STATUS, ROBOT_STATUS, timeAgo, typeById } from '../ui.jsx';
 
 export function Stations({ state }) {
-  const { stations, robots, orders, stageNames, now } = state;
+  const { stations, robots, orders, now } = state;
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
 
@@ -35,7 +35,10 @@ export function Stations({ state }) {
             <div key={s.id} className="card station-card">
               <div className="station-head">
                 <h3>{s.name}</h3>
-                <span className="station-stage">{stageNames[s.stage]}</span>
+                <span className="station-stage">
+                  {typeById(state, s.typeId)?.icon} {typeById(state, s.typeId)?.name}
+                  {typeById(state, s.typeId)?.composite ? ' (multi-cell)' : ''}
+                </span>
                 <Badge meta={STATION_STATUS[s.status]} />
               </div>
 

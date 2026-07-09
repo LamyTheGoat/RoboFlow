@@ -18,10 +18,14 @@ function tick() {
     station.utilization = +(station.utilization * 0.985 + (station.status === 'running' ? 100 : 0) * 0.015).toFixed(1);
   }
 
-  // 1. Stations report progress on their current batch.
+  // 1. Stations report progress on their current batch. The pace comes from
+  // the station type's designed time-per-unit and the batch size.
   for (const station of state.stations) {
     if (station.status !== 'running' || !station.currentOrderId) continue;
-    const advance = station.speed * (0.6 + Math.random() * 0.8);
+    const order = state.orders.find((o) => o.id === station.currentOrderId);
+    const stage = order?.stages[order.stageIndex];
+    const batchSec = Math.max(4, (stage?.timeSecPerUnit ?? 4) * (order?.qty ?? 10));
+    const advance = ((TICK_MS / 1000) / batchSec) * 100 * (0.7 + Math.random() * 0.6);
     const progress = station.progress + advance;
     if (progress >= 100) {
       applyTelemetry({ kind: 'stage.completed', stationId: station.id });

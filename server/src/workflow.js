@@ -1,21 +1,18 @@
 // Order workflow engine: dispatches queued orders to matching idle stations,
 // consumes materials, and advances orders when a station reports a finished
-// stage. Robots/stations only report telemetry (see ingest.js); everything
-// about *orders* is decided here, on the server.
+// stage. Orders carry a snapshot of their (flattened) workflow, so editing a
+// workflow or station type never disturbs orders already on the floor.
 import {
   state,
-  findStation,
   findOrder,
   logEvent,
   raiseAlert,
   recordThroughput,
+  nextId,
 } from './store.js';
+import { typeServes, buildOrderStages } from './catalog.js';
 
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 };
-
-export function currentStageOf(order) {
-  return order.stages[order.stageIndex]?.stage ?? null;
-}
 
 export function stationOfOrder(order) {
   return state.stations.find((s) => s.currentOrderId === order.id) ?? null;
@@ -27,17 +24,28 @@ export function orderLocation(order) {
   const st = stationOfOrder(order);
   if (st) return st.name;
   if (order.status === 'on_hold') return 'Warehouse — awaiting material';
-  if (order.stageIndex === 0 && order.stages[0].status === 'pending') return 'Warehouse — staged';
-  return `Buffer before ${state.stageNames[currentStageOf(order)] ?? '?'}`;
+  if (order.stageIndex === 0 && order.stages[0]?.status === 'pending') return 'Warehouse — staged';
+  return `Buffer before ${order.stages[order.stageIndex]?.name ?? '?'}`;
+}
+
+// Total material need = sum over the order's stage snapshot.
+function materialNeeds(order) {
+  const needs = new Map();
+  for (const stage of order.stages) {
+    for (const inp of stage.inputs ?? []) {
+      needs.set(inp.sku, +((needs.get(inp.sku) ?? 0) + inp.qty * order.qty).toFixed(1));
+    }
+  }
+  return needs;
 }
 
 function tryConsumeMaterials(order) {
   if (order.materialsConsumed) return true;
-  const project = state.projects.find((p) => p.id === order.projectId);
+  const needs = materialNeeds(order);
   const missing = [];
-  for (const [sku, perUnit] of Object.entries(project.bom)) {
+  for (const [sku, amount] of needs) {
     const item = state.inventory.find((i) => i.sku === sku);
-    if (!item || item.qty < perUnit * order.qty) missing.push(item?.name ?? sku);
+    if (!item || item.qty < amount) missing.push(item?.name ?? sku);
   }
   if (missing.length) {
     if (order.status !== 'on_hold') {
@@ -46,9 +54,8 @@ function tryConsumeMaterials(order) {
     }
     return false;
   }
-  for (const [sku, perUnit] of Object.entries(project.bom)) {
+  for (const [sku, amount] of needs) {
     const item = state.inventory.find((i) => i.sku === sku);
-    const amount = +(perUnit * order.qty).toFixed(1);
     item.qty = +(item.qty - amount).toFixed(1);
     item.consumedToday = +(item.consumedToday + amount).toFixed(1);
     if (item.qty <= item.reorderPoint && item.qty + amount > item.reorderPoint) {
@@ -72,19 +79,25 @@ export function dispatchOrders() {
   for (const order of waiting) {
     if (!tryConsumeMaterials(order)) continue;
     if (order.status === 'on_hold') order.status = 'queued';
-    const stage = currentStageOf(order);
-    const station = state.stations.find((s) => s.stage === stage && s.status === 'idle');
-    if (!station) continue;
+    const stage = order.stages[order.stageIndex];
+    const station = state.stations.find((s) => s.status === 'idle' && typeServes(s.typeId, stage.typeId));
+    if (!station) {
+      if (!stage.noStationAlerted && !state.stations.some((s) => typeServes(s.typeId, stage.typeId))) {
+        stage.noStationAlerted = true;
+        raiseAlert('warning', order.code, `No station on the floor can perform "${stage.name}" — place one in the Factory designer`);
+      }
+      continue;
+    }
     station.status = 'running';
     station.currentOrderId = order.id;
     station.progress = 0;
     station.lastSeen = Date.now();
     order.status = 'in_progress';
-    const stageEntry = order.stages[order.stageIndex];
-    stageEntry.status = 'active';
-    stageEntry.startedAt = Date.now();
+    stage.status = 'active';
+    stage.startedAt = Date.now();
+    stage.stationId = station.id;
     for (const r of state.robots) if (r.stationId === station.id && r.status !== 'fault') r.status = 'working';
-    logEvent('workflow', station.name, `${order.code} started ${state.stageNames[stage]} (${order.qty} units)`);
+    logEvent('workflow', station.name, `${order.code} started ${stage.name} (${order.qty} units)`);
   }
 }
 
@@ -97,11 +110,11 @@ export function completeStage(station) {
   for (const r of state.robots) if (r.stationId === station.id && r.status === 'working') r.status = 'idle';
   if (!order) return;
 
-  const stageEntry = order.stages[order.stageIndex];
-  stageEntry.status = 'done';
-  stageEntry.finishedAt = Date.now();
+  const stage = order.stages[order.stageIndex];
+  stage.status = 'done';
+  stage.finishedAt = Date.now();
   station.unitsToday += order.qty;
-  logEvent('workflow', station.name, `${order.code} finished ${state.stageNames[stageEntry.stage]}`);
+  logEvent('workflow', station.name, `${order.code} finished ${stage.name}`);
 
   order.stageIndex += 1;
   if (order.stageIndex >= order.stages.length) {
@@ -117,6 +130,8 @@ let orderSeq = 1007;
 export function createOrder({ projectId, customer, qty, priority = 'normal', dueInDays = 7 }) {
   const project = state.projects.find((p) => p.id === projectId);
   if (!project) throw new Error(`unknown project ${projectId}`);
+  const stages = buildOrderStages(project.workflowId);
+  if (!stages.length) throw new Error(`project ${project.name} has no runnable workflow assigned`);
   const now = Date.now();
   const order = {
     id: `ord_${orderSeq}`,
@@ -127,7 +142,7 @@ export function createOrder({ projectId, customer, qty, priority = 'normal', due
     priority,
     status: 'queued',
     stageIndex: 0,
-    stages: project.workflow.map((stage) => ({ stage, status: 'pending', startedAt: null, finishedAt: null })),
+    stages,
     materialsConsumed: false,
     createdAt: now,
     dueDate: now + dueInDays * 24 * 60 * 60 * 1000,
@@ -145,4 +160,70 @@ export function receiveDelivery(sku, qty) {
   item.qty = Math.min(item.capacity, +(item.qty + qty).toFixed(1));
   logEvent('warehouse', 'goods-in', `Delivery received: +${qty} ${item.unit} ${item.name}`);
   dispatchOrders();
+}
+
+// ---- factory designer: placing real stations on the grid -----------------------
+export function placeStation({ typeId, name, x, y }) {
+  const type = state.stationTypes.find((t) => t.id === typeId);
+  if (!type) throw new Error(`unknown station type ${typeId}`);
+  const { w, h } = state.factory.grid;
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= w || y >= h) {
+    throw new Error('position is outside the factory floor');
+  }
+  if (state.stations.some((s) => s.x === x && s.y === y)) throw new Error('that spot is already occupied');
+
+  const station = {
+    id: nextId('st'),
+    name: name?.trim() || `${type.name} ${state.stations.filter((s) => s.typeId === typeId).length + 1}`,
+    typeId, x, y,
+    status: 'idle',
+    currentOrderId: null,
+    progress: 0,
+    utilization: 0,
+    unitsToday: 0,
+    lastSeen: Date.now(),
+  };
+  state.stations.push(station);
+  state.robots.push({
+    id: nextId('rb'),
+    name: `${type.icon} ${station.name} Bot`,
+    model: 'Generic 6-axis',
+    stationId: station.id,
+    status: 'idle',
+    temperatureC: 34,
+    toolWearPct: 0,
+    cyclesTotal: 0,
+    lastSeen: Date.now(),
+  });
+  logEvent('station', 'factory-designer', `${station.name} installed at (${x}, ${y})`);
+  dispatchOrders();
+  return station;
+}
+
+export function updateStation(stationId, { name, x, y }) {
+  const station = state.stations.find((s) => s.id === stationId);
+  if (!station) throw new Error(`unknown station ${stationId}`);
+  if (name !== undefined && name.trim()) station.name = name.trim();
+  if (x !== undefined && y !== undefined) {
+    const { w, h } = state.factory.grid;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= w || y >= h) {
+      throw new Error('position is outside the factory floor');
+    }
+    if (state.stations.some((s) => s.id !== stationId && s.x === x && s.y === y)) {
+      throw new Error('that spot is already occupied');
+    }
+    station.x = x;
+    station.y = y;
+  }
+  return station;
+}
+
+export function removeStation(stationId) {
+  const station = state.stations.find((s) => s.id === stationId);
+  if (!station) throw new Error(`unknown station ${stationId}`);
+  if (station.currentOrderId) throw new Error('station is working on an order — stop it first');
+  state.stations = state.stations.filter((s) => s.id !== stationId);
+  state.robots = state.robots.filter((r) => r.stationId !== stationId);
+  logEvent('station', 'factory-designer', `${station.name} removed from the floor`);
+  return station;
 }

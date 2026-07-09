@@ -127,15 +127,20 @@ export function Sparkline({ points, height = 72, formatValue = (v) => `${v}` }) 
 }
 
 // Workflow stage pips for an order: done / active / pending.
-export function StagePips({ order, stageNames }) {
+export function StagePips({ stages }) {
   return (
-    <div className="pips" title={order.stages.map((s) => `${stageNames[s.stage]}: ${s.status}`).join('\n')}>
-      {order.stages.map((s, i) => (
+    <div className="pips" title={stages.map((s) => `${s.name}: ${s.status}`).join('\n')}>
+      {stages.map((s, i) => (
         <span key={i} className={`pip pip-${s.status}`}>
           <span className="pip-dot" />
-          <span className="pip-name">{stageNames[s.stage]}</span>
+          <span className="pip-name">{s.icon ? `${s.icon} ` : ''}{s.name}</span>
         </span>
       ))}
     </div>
   );
 }
+
+// Quick lookups shared by pages.
+export const typeById = (state, id) => state.stationTypes.find((t) => t.id === id);
+export const skuName = (state, sku) => state.inventory.find((i) => i.sku === sku)?.name ?? sku;
+export const skuUnit = (state, sku) => state.inventory.find((i) => i.sku === sku)?.unit ?? '';

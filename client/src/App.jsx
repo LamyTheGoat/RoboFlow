@@ -3,16 +3,20 @@ import { useLiveState } from './useLiveState.js';
 import { api } from './api.js';
 import { fmtClock } from './ui.jsx';
 import { Overview } from './pages/Overview.jsx';
+import { Factory } from './pages/Factory.jsx';
 import { Stations } from './pages/Stations.jsx';
 import { Orders } from './pages/Orders.jsx';
+import { Workflows } from './pages/Workflows.jsx';
 import { Projects } from './pages/Projects.jsx';
 import { Warehouse } from './pages/Warehouse.jsx';
 import { Alerts } from './pages/Alerts.jsx';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: '▦' },
+  { id: 'factory', label: 'Factory', icon: '⊞' },
   { id: 'stations', label: 'Stations', icon: '⚙' },
   { id: 'orders', label: 'Orders', icon: '≣' },
+  { id: 'workflows', label: 'Design studio', icon: '✎' },
   { id: 'projects', label: 'Projects', icon: '◫' },
   { id: 'warehouse', label: 'Warehouse', icon: '▤' },
   { id: 'alerts', label: 'Alerts', icon: '⚠' },
@@ -25,7 +29,12 @@ export default function App() {
 
   useEffect(() => {
     const t = setInterval(() => setClock(Date.now()), 1000);
-    return () => clearInterval(t);
+    const onHash = () => setPage(location.hash.slice(1) || 'overview');
+    window.addEventListener('hashchange', onHash);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('hashchange', onHash);
+    };
   }, []);
 
   function goTo(p) {
@@ -50,7 +59,10 @@ export default function App() {
     }
   }
 
-  const Page = { overview: Overview, stations: Stations, orders: Orders, projects: Projects, warehouse: Warehouse, alerts: Alerts }[page] ?? Overview;
+  const Page = {
+    overview: Overview, factory: Factory, stations: Stations, orders: Orders,
+    workflows: Workflows, projects: Projects, warehouse: Warehouse, alerts: Alerts,
+  }[page] ?? Overview;
 
   return (
     <div className="app">

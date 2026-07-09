@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildSeedState } from './seed.js';
+import { buildSeedState, STATE_VERSION } from './seed.js';
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const SNAPSHOT_FILE = path.join(DATA_DIR, 'state.json');
@@ -17,7 +17,9 @@ export const state = loadState();
 function loadState() {
   try {
     if (process.env.FRESH_STATE !== '1' && fs.existsSync(SNAPSHOT_FILE)) {
-      return JSON.parse(fs.readFileSync(SNAPSHOT_FILE, 'utf8'));
+      const snapshot = JSON.parse(fs.readFileSync(SNAPSHOT_FILE, 'utf8'));
+      if (snapshot.version === STATE_VERSION) return snapshot;
+      console.warn(`Snapshot is schema v${snapshot.version ?? 1}, expected v${STATE_VERSION} — reseeding`);
     }
   } catch (err) {
     console.warn('Could not load snapshot, reseeding:', err.message);

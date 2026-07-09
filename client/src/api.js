@@ -9,6 +9,17 @@ async function post(url, body) {
   return data;
 }
 
+async function send(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+  return data;
+}
+
 export const api = {
   fetchState: () => fetch('/api/state').then((r) => r.json()),
   stationCommand: (stationId, action) => post(`/api/stations/${stationId}/command`, { action }),
@@ -16,4 +27,16 @@ export const api = {
   ackAlert: (alertId) => post(`/api/alerts/${alertId}/ack`),
   createOrder: (order) => post('/api/orders', order),
   setPriority: (orderId, priority) => post(`/api/orders/${orderId}/priority`, { priority }),
+  // designer
+  createStationType: (body) => send('POST', '/api/station-types', body),
+  updateStationType: (id, body) => send('PUT', `/api/station-types/${id}`, body),
+  deleteStationType: (id) => send('DELETE', `/api/station-types/${id}`),
+  createWorkflow: (body) => send('POST', '/api/workflows', body),
+  updateWorkflow: (id, body) => send('PUT', `/api/workflows/${id}`, body),
+  deleteWorkflow: (id) => send('DELETE', `/api/workflows/${id}`),
+  placeStation: (body) => send('POST', '/api/stations', body),
+  updateStation: (id, body) => send('PATCH', `/api/stations/${id}`, body),
+  removeStation: (id) => send('DELETE', `/api/stations/${id}`),
+  createProject: (body) => send('POST', '/api/projects', body),
+  updateProject: (id, body) => send('PATCH', `/api/projects/${id}`, body),
 };

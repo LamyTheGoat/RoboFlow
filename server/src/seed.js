@@ -1,55 +1,93 @@
-// Initial factory layout. This is demo data: a mid-size plant with three
-// product lines flowing through eight robotic workstations.
+// Initial factory layout: a mid-size plant with user-editable station types,
+// workflows (including one nested workflow as a recursion example), physical
+// stations placed on the factory grid, and three product lines.
 
-const STAGES = {
-  cutting: 'Cutting',
-  welding: 'Welding',
-  assembly: 'Assembly',
-  painting: 'Painting',
-  qa: 'Quality Control',
-  packaging: 'Packaging',
-};
+export const STATE_VERSION = 2;
+export const GRID_W = 20;
+export const GRID_H = 12;
 
 export function buildSeedState() {
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;
 
-  const projects = [
+  const stationTypes = [
+    type('tp_cut', 'Cutter', '✂️', 3, 'Cuts raw sheets and profiles to size', [inp('steel-sheet', 2)]),
+    type('tp_weld', 'Welder', '🔥', 4, 'Joins cut parts into frames', [inp('welding-wire', 0.4)]),
+    type('tp_asm', 'Assembler', '🔧', 5, 'Mounts components onto frames', [inp('fastener-m8', 10)]),
+    type('tp_paint', 'Paint Booth', '🎨', 3, 'Applies protective coating', [inp('paint-ral7016', 0.4)]),
+    type('tp_qa', 'Inspector', '🔍', 2, 'Vision-checks every unit', []),
+    type('tp_pack', 'Packager', '📦', 1.5, 'Boxes finished goods for dispatch', [inp('carton-m', 1)]),
     {
-      id: 'prj_atlas',
-      name: 'Atlas',
-      product: 'AX-100 Robotic Arm Base',
-      status: 'active',
-      workflow: ['cutting', 'welding', 'assembly', 'qa', 'packaging'],
-      bom: { 'steel-sheet': 2, 'welding-wire': 0.4, 'fastener-m8': 12, 'servo-motor': 1, 'control-pcb': 1, 'carton-l': 1 },
-    },
-    {
-      id: 'prj_borealis',
-      name: 'Borealis',
-      product: 'CD-40 Conveyor Drive Unit',
-      status: 'active',
-      workflow: ['cutting', 'assembly', 'painting', 'qa', 'packaging'],
-      bom: { 'alu-profile': 3, 'bearing-6204': 4, 'servo-motor': 1, 'fastener-m8': 8, 'paint-ral7016': 0.5, 'carton-m': 1 },
-    },
-    {
-      id: 'prj_cascade',
-      name: 'Cascade',
-      product: 'HM-8 Hydraulic Manifold',
-      status: 'active',
-      workflow: ['cutting', 'welding', 'painting', 'qa', 'packaging'],
-      bom: { 'steel-sheet': 1, 'welding-wire': 0.2, 'hydraulic-valve': 6, 'paint-ral7016': 0.3, 'carton-s': 1 },
+      ...type('tp_finishcell', 'Finishing Cell', '🏭', 0, 'All-in-one cell: paints, inspects and packs', []),
+      composite: true,
+      children: ['tp_paint', 'tp_qa', 'tp_pack'],
     },
   ];
 
+  const workflows = [
+    {
+      id: 'wf_finish',
+      name: 'Finishing & Dispatch',
+      description: 'Shared tail of most lines: coat, inspect, box. Reused inside other workflows.',
+      steps: [
+        step('station', 'tp_paint'),
+        step('station', 'tp_qa'),
+        step('station', 'tp_pack'),
+      ],
+      outputs: [{ sku: 'finished-goods', qty: 1 }],
+    },
+    {
+      id: 'wf_atlas',
+      name: 'Arm Base Line',
+      description: 'Full build of the AX-100 robotic arm base.',
+      steps: [
+        step('station', 'tp_cut', [inp('steel-sheet', 2)]),
+        step('station', 'tp_weld', [inp('welding-wire', 0.4)]),
+        step('station', 'tp_asm', [inp('fastener-m8', 12), inp('servo-motor', 1), inp('control-pcb', 1)]),
+        step('station', 'tp_qa'),
+        step('station', 'tp_pack', [inp('carton-l', 1)]),
+      ],
+      outputs: [{ sku: 'finished-goods', qty: 1 }],
+    },
+    {
+      id: 'wf_borealis',
+      name: 'Conveyor Drive Line',
+      description: 'CD-40 drive units. Ends with the shared Finishing & Dispatch workflow.',
+      steps: [
+        step('station', 'tp_cut', [inp('alu-profile', 3)]),
+        step('station', 'tp_asm', [inp('bearing-6204', 4), inp('servo-motor', 1), inp('fastener-m8', 8)]),
+        step('workflow', 'wf_finish'),
+      ],
+      outputs: [{ sku: 'finished-goods', qty: 1 }],
+    },
+    {
+      id: 'wf_cascade',
+      name: 'Manifold Line',
+      description: 'HM-8 hydraulic manifolds. Ends with the shared Finishing & Dispatch workflow.',
+      steps: [
+        step('station', 'tp_cut', [inp('steel-sheet', 1)]),
+        step('station', 'tp_weld', [inp('welding-wire', 0.2), inp('hydraulic-valve', 6)]),
+        step('workflow', 'wf_finish'),
+      ],
+      outputs: [{ sku: 'finished-goods', qty: 1 }],
+    },
+  ];
+
+  const projects = [
+    { id: 'prj_atlas', name: 'Atlas', product: 'AX-100 Robotic Arm Base', status: 'active', workflowId: 'wf_atlas' },
+    { id: 'prj_borealis', name: 'Borealis', product: 'CD-40 Conveyor Drive Unit', status: 'active', workflowId: 'wf_borealis' },
+    { id: 'prj_cascade', name: 'Cascade', product: 'HM-8 Hydraulic Manifold', status: 'active', workflowId: 'wf_cascade' },
+  ];
+
   const stations = [
-    station('st_cut1', 'Laser Cutting Cell 1', 'cutting', 9),
-    station('st_cut2', 'CNC Milling Cell 2', 'cutting', 7),
-    station('st_weld1', 'Welding Cell A', 'welding', 6),
-    station('st_asm1', 'Assembly Line 1', 'assembly', 5),
-    station('st_asm2', 'Assembly Line 2', 'assembly', 5),
-    station('st_paint1', 'Paint Booth', 'painting', 8),
-    station('st_qa1', 'Inspection Cell', 'qa', 10),
-    station('st_pack1', 'Packaging Line', 'packaging', 12),
+    station('st_cut1', 'Laser Cutting Cell 1', 'tp_cut', 2, 2),
+    station('st_cut2', 'CNC Milling Cell 2', 'tp_cut', 2, 6),
+    station('st_weld1', 'Welding Cell A', 'tp_weld', 5, 4),
+    station('st_asm1', 'Assembly Line 1', 'tp_asm', 8, 2),
+    station('st_asm2', 'Assembly Line 2', 'tp_asm', 8, 6),
+    station('st_paint1', 'Paint Booth', 'tp_paint', 11, 4),
+    station('st_qa1', 'Inspection Cell', 'tp_qa', 14, 4),
+    station('st_pack1', 'Packaging Line', 'tp_pack', 17, 4),
   ];
 
   const robots = [
@@ -80,18 +118,45 @@ export function buildSeedState() {
     item('carton-l', 'Carton Box L', 'Packaging', 140, 'pcs', 80, 400),
   ];
 
+  // Local flatten for seeding orders (catalog.js reads live state, which
+  // doesn't exist yet while we build it).
+  const flatten = (wfId, path = new Set()) => {
+    const wf = workflows.find((w) => w.id === wfId);
+    if (!wf || path.has(wfId)) return [];
+    path.add(wfId);
+    const out = (wf.steps ?? []).flatMap((s) => {
+      if (s.kind === 'workflow') return flatten(s.refId, path);
+      const t = stationTypes.find((x) => x.id === s.refId);
+      return [{ name: t.name, typeId: t.id, icon: t.icon, inputs: s.inputs?.length ? s.inputs : t.inputs, timeSecPerUnit: t.timeSecPerUnit }];
+    });
+    path.delete(wfId);
+    return out;
+  };
+  const stagesFor = (projectId) =>
+    flatten(projects.find((p) => p.id === projectId).workflowId).map((s) => ({
+      ...s, status: 'pending', startedAt: null, finishedAt: null, stationId: null,
+    }));
+
+  const order = (id, code, projectId, customer, qty, priority, created, due) => ({
+    id, code, projectId, customer, qty, priority,
+    status: 'queued', stageIndex: 0, stages: stagesFor(projectId),
+    materialsConsumed: false, createdAt: created, dueDate: due, completedAt: null,
+  });
+
   const orders = [
-    order('ord_1001', 'ORD-1001', 'prj_atlas', 'Nordwerk GmbH', 12, 'high', now - 2 * day, now + 3 * day, projects),
-    order('ord_1002', 'ORD-1002', 'prj_borealis', 'Meridian Logistics', 8, 'normal', now - 2 * day, now + 5 * day, projects),
-    order('ord_1003', 'ORD-1003', 'prj_cascade', 'HydroParts AS', 20, 'normal', now - day, now + 6 * day, projects),
-    order('ord_1004', 'ORD-1004', 'prj_atlas', 'Vektor Automation', 6, 'low', now - day, now + 9 * day, projects),
-    order('ord_1005', 'ORD-1005', 'prj_borealis', 'Meridian Logistics', 15, 'high', now - day, now + 4 * day, projects),
-    order('ord_1006', 'ORD-1006', 'prj_cascade', 'BalticFluid OÜ', 10, 'normal', now, now + 8 * day, projects),
+    order('ord_1001', 'ORD-1001', 'prj_atlas', 'Nordwerk GmbH', 12, 'high', now - 2 * day, now + 3 * day),
+    order('ord_1002', 'ORD-1002', 'prj_borealis', 'Meridian Logistics', 8, 'normal', now - 2 * day, now + 5 * day),
+    order('ord_1003', 'ORD-1003', 'prj_cascade', 'HydroParts AS', 20, 'normal', now - day, now + 6 * day),
+    order('ord_1004', 'ORD-1004', 'prj_atlas', 'Vektor Automation', 6, 'low', now - day, now + 9 * day),
+    order('ord_1005', 'ORD-1005', 'prj_borealis', 'Meridian Logistics', 15, 'high', now - day, now + 4 * day),
+    order('ord_1006', 'ORD-1006', 'prj_cascade', 'BalticFluid OÜ', 10, 'normal', now, now + 8 * day),
   ];
 
   return {
-    factory: { name: 'RoboFlow Plant 1', location: 'Hall B, Line 1-8', simulator: true },
-    stageNames: STAGES,
+    version: STATE_VERSION,
+    factory: { name: 'RoboFlow Plant 1', location: 'Hall B, Line 1-8', simulator: true, grid: { w: GRID_W, h: GRID_H } },
+    stationTypes,
+    workflows,
     projects,
     stations,
     robots,
@@ -105,15 +170,18 @@ export function buildSeedState() {
   };
 }
 
-function station(id, name, stage, speed) {
+function type(id, name, icon, timeSecPerUnit, description, inputs) {
+  return { id, name, icon, timeSecPerUnit, description, inputs, outputs: [], composite: false, children: [] };
+}
+const inp = (sku, qty) => ({ sku, qty });
+const step = (kind, refId, inputs) => ({ kind, refId, ...(inputs ? { inputs } : {}) });
+
+function station(id, name, typeId, x, y) {
   return {
-    id,
-    name,
-    stage,
+    id, name, typeId, x, y,
     status: 'idle', // idle | running | paused | stopped | fault | maintenance
     currentOrderId: null,
-    progress: 0, // % of current stage batch
-    speed, // sim: average % progress per tick
+    progress: 0,
     utilization: 0,
     unitsToday: 0,
     lastSeen: Date.now(),
@@ -122,11 +190,8 @@ function station(id, name, stage, speed) {
 
 function robot(id, name, model, stationId) {
   return {
-    id,
-    name,
-    model,
-    stationId,
-    status: 'idle', // idle | working | paused | fault | offline
+    id, name, model, stationId,
+    status: 'idle',
     temperatureC: 34 + Math.round(Math.random() * 6),
     toolWearPct: Math.round(Math.random() * 35),
     cyclesTotal: 10000 + Math.round(Math.random() * 90000),
@@ -136,23 +201,4 @@ function robot(id, name, model, stationId) {
 
 function item(sku, name, category, qty, unit, reorderPoint, capacity) {
   return { sku, name, category, qty, unit, reorderPoint, capacity, consumedToday: 0 };
-}
-
-function order(id, code, projectId, customer, qty, priority, createdAt, dueDate, projects) {
-  const project = projects.find((p) => p.id === projectId);
-  return {
-    id,
-    code,
-    projectId,
-    customer,
-    qty,
-    priority, // low | normal | high
-    status: 'queued', // queued | in_progress | on_hold | completed
-    stageIndex: 0,
-    stages: project.workflow.map((stage) => ({ stage, status: 'pending', startedAt: null, finishedAt: null })),
-    materialsConsumed: false,
-    createdAt,
-    dueDate,
-    completedAt: null,
-  };
 }

@@ -5,7 +5,7 @@ import { Badge, StagePips, ORDER_STATUS, fmtDate } from '../ui.jsx';
 const FILTERS = ['all', 'in_progress', 'queued', 'on_hold', 'completed'];
 
 export function Orders({ state }) {
-  const { orders, projects, stageNames, now } = state;
+  const { orders, projects, now } = state;
   const [filter, setFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ projectId: projects[0]?.id, customer: '', qty: 10, priority: 'normal' });
@@ -90,7 +90,7 @@ export function Orders({ state }) {
                     </select>
                   </td>
                   <td><Badge meta={ORDER_STATUS[o.status]} /></td>
-                  <td><StagePips order={o} stageNames={stageNames} /></td>
+                  <td><StagePips stages={o.stages} /></td>
                   <td className="muted">{o.location}</td>
                   <td className={overdue ? 'ink-critical' : 'muted'}>{fmtDate(o.dueDate)}{overdue ? ' ⚠' : ''}</td>
                 </tr>

@@ -1,7 +1,7 @@
-import { KpiTile, Sparkline, Badge, Bar, STATION_STATUS, ALERT_SEVERITY, timeAgo } from '../ui.jsx';
+import { KpiTile, Sparkline, Badge, Bar, STATION_STATUS, ALERT_SEVERITY, timeAgo, typeById } from '../ui.jsx';
 
 export function Overview({ state, goTo }) {
-  const { stations, orders, alerts, events, inventory, metrics, stageNames, now } = state;
+  const { stations, orders, alerts, events, inventory, metrics, now } = state;
   const running = stations.filter((s) => s.status === 'running').length;
   const faulted = stations.filter((s) => s.status === 'fault').length;
   const activeOrders = orders.filter((o) => o.status === 'in_progress' || o.status === 'queued').length;
@@ -54,7 +54,7 @@ export function Overview({ state, goTo }) {
               {stations.map((s) => (
                 <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => goTo('stations')}>
                   <td>{s.name}</td>
-                  <td className="muted">{stageNames[s.stage]}</td>
+                  <td className="muted">{typeById(state, s.typeId)?.icon} {typeById(state, s.typeId)?.name}</td>
                   <td><Badge meta={STATION_STATUS[s.status]} /></td>
                   <td className="muted" style={{ textAlign: 'right' }}>
                     {s.currentOrderId ? `${orders.find((o) => o.id === s.currentOrderId)?.code ?? ''} · ${Math.round(s.progress)}%` : '—'}

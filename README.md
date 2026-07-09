@@ -6,6 +6,23 @@ robots, workflow status, order whereabouts, warehouse stock, alerts — plus
 basic operator commands (start / pause / stop a station, emergency stop,
 acknowledge alerts, create orders, change priorities).
 
+It is also a factory *design* tool:
+
+- **Design studio → Station types** — design your own stations: icon, time per
+  unit, materials consumed (inputs) and produced (outputs). Stations can be
+  **composite** (recursive): one physical cell that contains other stations —
+  including other composites — and can do all of their jobs.
+- **Design studio → Workflows** — chain stations into workflows, reorder steps,
+  override the materials any step uses. A workflow step can be a station *or a
+  whole other workflow* (recursive nesting, cycle-guarded). Each product line
+  (project) picks the workflow its orders run through; edits apply to new
+  orders while orders already on the floor keep their routing.
+- **Factory** — a Factorio-style top-down floor. Place stations from the
+  palette onto the grid and they instantly become real, live stations that the
+  plant dispatches work to. Select a workflow to see its animated conveyor
+  route from Warehouse to Dispatch, watch order pucks travel between stations,
+  and move / rename / dismantle stations in place.
+
 ![Control room](docs/screenshot-overview.png)
 
 ## How it works
@@ -74,3 +91,20 @@ material consumption against the warehouse.
 | `POST /api/orders` | `{projectId, customer, qty, priority?, dueInDays?}` |
 | `POST /api/orders/:id/priority` | `{"priority": "low" \| "normal" \| "high"}` |
 | `GET /api/state` | full plant snapshot (same payload as the WebSocket feed) |
+
+## Designer API (what the Design studio and Factory pages call)
+
+| Endpoint | Action |
+|---|---|
+| `POST/PUT/DELETE /api/station-types[/:id]` | design station types; `{name, icon, timeSecPerUnit, inputs, outputs, composite, children}` |
+| `POST/PUT/DELETE /api/workflows[/:id]` | design workflows; steps are `{kind: "station" \| "workflow", refId, inputs?}` |
+| `POST /api/stations` | install a station on the floor: `{typeId, x, y, name?}` |
+| `PATCH /api/stations/:id` | move / rename: `{x?, y?, name?}` |
+| `DELETE /api/stations/:id` | dismantle (refused while it works on an order) |
+| `POST /api/projects` | new product line: `{name, product, workflowId}` |
+| `PATCH /api/projects/:id` | reassign workflow: `{workflowId}` (new orders only) |
+
+Recursion is cycle-guarded server-side: a workflow can never contain itself
+(directly or through nesting) and a composite station can never contain itself.
+Orders snapshot their flattened workflow at creation, so editing definitions
+never disturbs work already in progress.
