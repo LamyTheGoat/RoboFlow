@@ -314,6 +314,11 @@ td.num { font-variant-numeric: tabular-nums; }
 .ghost.ok { background: rgba(12, 163, 12, 0.18); border: 2px dashed var(--good); color: #4fd24f; }
 .ghost.bad { background: rgba(208, 59, 59, 0.18); border: 2px dashed var(--critical); color: #ff7b7b; }
 
+/* login */
+.login-wrap { height: 100%; display: grid; place-items: center; }
+.login-card { display: flex; flex-direction: column; gap: 12px; width: 320px; padding: 24px; }
+.login-card input { width: 100%; }
+
 /* planned vs actual pace */
 .pace-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
 .pace-row .drift { color: var(--warning); font-weight: 600; }

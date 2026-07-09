@@ -82,6 +82,20 @@ Then open http://localhost:5173 (dev) or http://localhost:4000 (production).
 Environment variables: `PORT` (default 4000), `SIMULATOR=off` to disable the
 floor simulator, `FRESH_STATE=1` to ignore the saved snapshot and reseed.
 
+## Signing in (roles)
+
+Authentication is on by default. First run creates two users in
+`server/data/users.json` (change passwords via `POST /api/auth/password`):
+
+| user | password | can do |
+|---|---|---|
+| `manager` | `manager123` | everything: design stations/workflows, edit the floor, run the plant |
+| `operator` | `operator123` | run the plant: station commands, e-stop, orders, alert acks — designs are view-only |
+
+Set `AUTH=off` to disable the login layer entirely (every visitor acts as a
+manager — for local development only). Sessions are httpOnly cookies; the
+WebSocket feed requires the same session.
+
 ## Connecting real robots / stations
 
 Point your robot controllers or PLC gateway at `POST /api/ingest` with JSON
@@ -98,6 +112,27 @@ Point your robot controllers or PLC gateway at `POST /api/ingest` with JSON
 The workflow engine reacts server-side: `stage.completed` advances the active
 order to its next stage, dispatches queued orders to idle stations, and books
 material consumption against the warehouse.
+
+Machine-facing endpoints (`/api/ingest`, `/api/commands*`) don't use the login
+session — they're open by default; set `INGEST_TOKEN` to require an
+`x-api-key` header from gateways.
+
+### Commands OUT to real equipment
+
+Every operator command (start/pause/stop/reset_fault, plus plant-wide
+`emergency_stop`) is recorded in a command queue so real equipment can receive
+and execute it. Two transports, use either:
+
+- **Polling** — the gateway fetches and acknowledges:
+  `GET /api/commands?status=pending&target=<stationId>` → execute →
+  `POST /api/commands/:id/ack`. (With the simulator on, commands are
+  executed locally and enter the log pre-acked.)
+- **MQTT** — set `MQTT_URL` (plus optional `MQTT_USERNAME`/`MQTT_PASSWORD`)
+  and the server connects to your broker: each command is published to
+  `roboflow/commands/<stationId>` (or `roboflow/commands/all`) as it happens,
+  and telemetry published by gateways to `roboflow/telemetry` (same JSON as
+  `/api/ingest`) flows straight into the plant state. HTTP and MQTT work
+  side by side.
 
 ## Command API (what the UI buttons call)
 

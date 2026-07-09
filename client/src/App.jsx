@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLiveState } from './useLiveState.js';
 import { api } from './api.js';
 import { fmtClock } from './ui.jsx';
+import { Login } from './Login.jsx';
 import { Overview } from './pages/Overview.jsx';
 import { Factory } from './pages/Factory.jsx';
 import { Stations } from './pages/Stations.jsx';
@@ -23,6 +24,19 @@ const PAGES = [
 ];
 
 export default function App() {
+  const [user, setUser] = useState(undefined); // undefined = checking, null = login needed
+  useEffect(() => {
+    api.me().then(setUser).catch(() => setUser(null));
+  }, []);
+
+  if (user === undefined) {
+    return <div className="app" style={{ placeItems: 'center', display: 'grid' }}>Checking session…</div>;
+  }
+  if (!user) return <Login onLogin={setUser} />;
+  return <ControlRoom user={user} onLogout={async () => { await api.logout().catch(() => {}); setUser(null); }} />;
+}
+
+function ControlRoom({ user, onLogout }) {
   const { state, connected } = useLiveState();
   const [page, setPage] = useState(() => location.hash.slice(1) || 'overview');
   const [clock, setClock] = useState(Date.now());
@@ -76,6 +90,10 @@ export default function App() {
           {connected ? 'Live' : 'Reconnecting…'}
         </span>
         <span className="clock">{fmtClock(clock)}</span>
+        <span className="badge tone-neutral" title={`Role: ${user.role}`}>
+          <span className="badge-icon">{user.role === 'manager' ? '👑' : '🔧'}</span>{user.username}
+        </span>
+        <button className="btn" style={{ padding: '3px 10px' }} onClick={onLogout}>Sign out</button>
       </header>
 
       <nav className="sidebar">
@@ -91,7 +109,7 @@ export default function App() {
       </nav>
 
       <main className="main">
-        <Page state={state} goTo={goTo} />
+        <Page state={state} goTo={goTo} user={user} />
       </main>
     </div>
   );

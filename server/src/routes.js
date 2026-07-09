@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { state, nextId, logEvent } from './store.js';
 import { applyTelemetry } from './ingest.js';
-import { stationCommand, emergencyStop, acknowledgeAlert, setOrderPriority } from './commands.js';
+import { stationCommand, emergencyStop, acknowledgeAlert, setOrderPriority, ackCommand } from './commands.js';
+import { requireUser, requireManager, gatewayGuard } from './auth.js';
 import {
   createOrder, orderLocation, dispatchOrders,
   placeStation, updateStation, removeStation,
@@ -65,11 +66,13 @@ const handle = (fn) => (req, res) => {
 export const api = Router();
 
 api.get('/health', (_req, res) => res.json({ ok: true, factory: state.factory.name }));
-api.get('/state', (_req, res) => res.json(serializeState()));
+
+// ---- machine-facing endpoints (gateways, not humans) -------------------------------
+// Open by default; set INGEST_TOKEN to require an x-api-key header.
 
 // Telemetry ingestion — what robots / PLC gateways push to.
 // Accepts a single message or an array of messages.
-api.post('/ingest', (req, res) => {
+api.post('/ingest', gatewayGuard, (req, res) => {
   const messages = Array.isArray(req.body) ? req.body : [req.body];
   const results = [];
   for (const msg of messages) {
@@ -84,10 +87,25 @@ api.post('/ingest', (req, res) => {
   res.status(failed ? 207 : 200).json({ accepted: results.length - failed, failed, results });
 });
 
+// Command delivery for gateways that poll instead of using MQTT:
+// fetch pending commands for your station(s), execute them, then ACK each id.
+api.get('/commands', gatewayGuard, (req, res) => {
+  let list = state.commandQueue ?? [];
+  if (req.query.status) list = list.filter((c) => c.status === req.query.status);
+  if (req.query.target) list = list.filter((c) => c.target === req.query.target || c.target === 'all');
+  res.json(list.slice(0, 50));
+});
+api.post('/commands/:id/ack', gatewayGuard, handle((req) => ackCommand(req.params.id)));
+
+// ---- everything below requires a logged-in user ------------------------------------
+api.use(requireUser);
+
+api.get('/state', (_req, res) => res.json(serializeState()));
+
 // ---- operator commands ----------------------------------------------------------
-api.post('/stations/:id/command', handle((req) => stationCommand(req.params.id, req.body.action)));
-api.post('/emergency-stop', handle(() => ({ stations: emergencyStop() })));
-api.post('/alerts/:id/ack', handle((req) => acknowledgeAlert(req.params.id)));
+api.post('/stations/:id/command', handle((req) => stationCommand(req.params.id, req.body.action, req.user.username)));
+api.post('/emergency-stop', handle((req) => ({ stations: emergencyStop(req.user.username) })));
+api.post('/alerts/:id/ack', handle((req) => acknowledgeAlert(req.params.id, req.user.username)));
 
 api.post('/orders', handle((req) => {
   const { projectId, customer, qty, priority, dueInDays } = req.body;
@@ -119,7 +137,7 @@ function readTypeBody(body, selfId) {
   };
 }
 
-api.post('/station-types', handle((req) => {
+api.post('/station-types', requireManager, handle((req) => {
   const id = nextId('tp');
   const type = { id, ...readTypeBody(req.body, id) };
   state.stationTypes.push(type);
@@ -127,7 +145,7 @@ api.post('/station-types', handle((req) => {
   return { __created: true, body: type };
 }));
 
-api.put('/station-types/:id', handle((req) => {
+api.put('/station-types/:id', requireManager, handle((req) => {
   const type = state.stationTypes.find((t) => t.id === req.params.id);
   if (!type) throw new Error('unknown station type');
   Object.assign(type, readTypeBody(req.body, type.id));
@@ -135,7 +153,7 @@ api.put('/station-types/:id', handle((req) => {
   return type;
 }));
 
-api.delete('/station-types/:id', handle((req) => {
+api.delete('/station-types/:id', requireManager, handle((req) => {
   const id = req.params.id;
   const type = state.stationTypes.find((t) => t.id === id);
   if (!type) throw new Error('unknown station type');
@@ -161,7 +179,7 @@ function readWorkflowBody(body, selfId) {
   };
 }
 
-api.post('/workflows', handle((req) => {
+api.post('/workflows', requireManager, handle((req) => {
   const id = nextId('wf');
   const wf = { id, ...readWorkflowBody(req.body, id) };
   state.workflows.push(wf);
@@ -169,7 +187,7 @@ api.post('/workflows', handle((req) => {
   return { __created: true, body: wf };
 }));
 
-api.put('/workflows/:id', handle((req) => {
+api.put('/workflows/:id', requireManager, handle((req) => {
   const wf = state.workflows.find((w) => w.id === req.params.id);
   if (!wf) throw new Error('unknown workflow');
   Object.assign(wf, readWorkflowBody(req.body, wf.id));
@@ -177,7 +195,7 @@ api.put('/workflows/:id', handle((req) => {
   return wf;
 }));
 
-api.delete('/workflows/:id', handle((req) => {
+api.delete('/workflows/:id', requireManager, handle((req) => {
   const id = req.params.id;
   if (!state.workflows.some((w) => w.id === id)) throw new Error('unknown workflow');
   const project = state.projects.find((p) => p.workflowId === id);
@@ -189,11 +207,11 @@ api.delete('/workflows/:id', handle((req) => {
 }));
 
 // ---- factory floor (designer page) ---------------------------------------------------
-api.post('/stations', handle((req) => {
+api.post('/stations', requireManager, handle((req) => {
   const { typeId, name, x, y } = req.body;
   return { __created: true, body: placeStation({ typeId, name, x: Number(x), y: Number(y) }) };
 }));
-api.patch('/stations/:id', handle((req) => {
+api.patch('/stations/:id', requireManager, handle((req) => {
   const { name, x, y } = req.body;
   return updateStation(req.params.id, {
     name,
@@ -201,10 +219,10 @@ api.patch('/stations/:id', handle((req) => {
     y: y !== undefined ? Number(y) : undefined,
   });
 }));
-api.delete('/stations/:id', handle((req) => removeStation(req.params.id)));
+api.delete('/stations/:id', requireManager, handle((req) => removeStation(req.params.id)));
 
 // One-click: replace a type's designed time with the fleet-measured average.
-api.post('/station-types/:id/adopt-measured', handle((req) => {
+api.post('/station-types/:id/adopt-measured', requireManager, handle((req) => {
   const type = state.stationTypes.find((t) => t.id === req.params.id);
   if (!type) throw new Error('unknown station type');
   if (type.composite) throw new Error('composite stations have no time of their own');
@@ -217,7 +235,7 @@ api.post('/station-types/:id/adopt-measured', handle((req) => {
 }));
 
 // ---- factory floor size ----------------------------------------------------------------
-api.patch('/factory', handle((req) => {
+api.patch('/factory', requireManager, handle((req) => {
   const { gridW, gridH, name } = req.body;
   if (name !== undefined && String(name).trim()) state.factory.name = String(name).trim().slice(0, 60);
   if (gridW !== undefined || gridH !== undefined) {
@@ -235,7 +253,7 @@ api.patch('/factory', handle((req) => {
 }));
 
 // ---- projects (product lines) ---------------------------------------------------------
-api.post('/projects', handle((req) => {
+api.post('/projects', requireManager, handle((req) => {
   const { name, product, workflowId } = req.body;
   if (!name?.trim() || !product?.trim()) throw new Error('name and product are required');
   if (!state.workflows.some((w) => w.id === workflowId)) throw new Error('pick a workflow for this product line');
@@ -245,7 +263,7 @@ api.post('/projects', handle((req) => {
   return { __created: true, body: project };
 }));
 
-api.patch('/projects/:id', handle((req) => {
+api.patch('/projects/:id', requireManager, handle((req) => {
   const project = state.projects.find((p) => p.id === req.params.id);
   if (!project) throw new Error('unknown project');
   if (req.body.workflowId !== undefined) {

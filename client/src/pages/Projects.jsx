@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { Badge, ORDER_STATUS, skuName, skuUnit } from '../ui.jsx';
 
-export function Projects({ state, goTo }) {
+export function Projects({ state, goTo, user }) {
   const { projects, orders, workflows } = state;
+  const canDesign = user?.role === 'manager';
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', product: '', workflowId: workflows[0]?.id });
   const [error, setError] = useState(null);
@@ -26,7 +27,7 @@ export function Projects({ state, goTo }) {
         <h1>Projects</h1>
         <span className="sub">Product lines — each runs a workflow you can design on the Workflows page</span>
         <span style={{ flex: 1 }} />
-        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>+ New product line</button>
+        {canDesign && <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>+ New product line</button>}
       </div>
 
       {showForm && (
@@ -63,7 +64,8 @@ export function Projects({ state, goTo }) {
               <div className="muted" style={{ marginTop: 2 }}>{p.product}</div>
 
               <h2 className="mt">Workflow (new orders)</h2>
-              <select value={p.workflowId ?? ''} onChange={(e) => api.updateProject(p.id, { workflowId: e.target.value }).catch(() => {})}
+              <select value={p.workflowId ?? ''} disabled={!canDesign}
+                onChange={(e) => api.updateProject(p.id, { workflowId: e.target.value }).catch(() => {})}
                 style={{ background: 'var(--surface-2)', color: 'var(--ink)', border: '1px solid var(--border)', borderRadius: 7, padding: '5px 8px', width: '100%' }}>
                 {workflows.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>

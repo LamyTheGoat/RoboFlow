@@ -77,7 +77,7 @@ function InputsEditor({ state, inputs, onChange, compact }) {
 // ==================================================================================
 // Workflow editor tab
 // ==================================================================================
-function WorkflowsTab({ state }) {
+function WorkflowsTab({ state, canDesign }) {
   const { workflows, stationTypes } = state;
   const [selectedId, setSelectedId] = useState(workflows[0]?.id ?? null);
   const [draft, setDraft] = useState(null);
@@ -148,7 +148,7 @@ function WorkflowsTab({ state }) {
             <span className="muted" style={{ fontSize: 11.5 }}>{w.flat.length} steps · {w.steps.some((s) => s.kind === 'workflow') ? 'nested ⤵' : 'simple'}</span>
           </button>
         ))}
-        <button className={`list-item new${selectedId === 'new' ? ' active' : ''}`} onClick={() => setSelectedId('new')}>+ New workflow</button>
+        {canDesign && <button className={`list-item new${selectedId === 'new' ? ' active' : ''}`} onClick={() => setSelectedId('new')}>+ New workflow</button>}
       </div>
 
       {draft && (
@@ -239,10 +239,10 @@ function WorkflowsTab({ state }) {
           )}
 
           <div className="form-row mt" style={{ alignItems: 'center' }}>
-            <button className="btn btn-primary" onClick={save} disabled={!draft.name.trim() || draft.steps.length === 0}>
+            <button className="btn btn-primary" onClick={save} disabled={!canDesign || !draft.name.trim() || draft.steps.length === 0} title={canDesign ? undefined : 'manager role required'}>
               {selectedId === 'new' ? 'Create workflow' : 'Save changes'}
             </button>
-            {selectedId !== 'new' && <button className="btn btn-danger" onClick={remove}>Delete</button>}
+            {selectedId !== 'new' && canDesign && <button className="btn btn-danger" onClick={remove}>Delete</button>}
             {saved && <span className="ink-good" style={{ fontSize: 12.5 }}>✓ saved</span>}
             {error && <span className="ink-critical" style={{ fontSize: 12.5 }}>{error}</span>}
             <span className="muted" style={{ fontSize: 11.5, marginLeft: 'auto' }}>Edits apply to new orders; orders on the floor keep their routing.</span>
@@ -256,7 +256,7 @@ function WorkflowsTab({ state }) {
 // ==================================================================================
 // Station type editor tab
 // ==================================================================================
-function StationTypesTab({ state }) {
+function StationTypesTab({ state, canDesign }) {
   const { stationTypes } = state;
   const [selectedId, setSelectedId] = useState(stationTypes[0]?.id ?? 'new');
   const [draft, setDraft] = useState(null);
@@ -313,7 +313,7 @@ function StationTypesTab({ state }) {
             </span>
           </button>
         ))}
-        <button className={`list-item new${selectedId === 'new' ? ' active' : ''}`} onClick={() => setSelectedId('new')}>+ New station type</button>
+        {canDesign && <button className={`list-item new${selectedId === 'new' ? ' active' : ''}`} onClick={() => setSelectedId('new')}>+ New station type</button>}
       </div>
 
       {draft && (
@@ -442,10 +442,10 @@ function StationTypesTab({ state }) {
           )}
 
           <div className="form-row mt" style={{ alignItems: 'center' }}>
-            <button className="btn btn-primary" onClick={save} disabled={!draft.name.trim() || (draft.composite && draft.children.length < 2)}>
+            <button className="btn btn-primary" onClick={save} disabled={!canDesign || !draft.name.trim() || (draft.composite && draft.children.length < 2)} title={canDesign ? undefined : 'manager role required'}>
               {selectedId === 'new' ? 'Create station type' : 'Save changes'}
             </button>
-            {selectedId !== 'new' && <button className="btn btn-danger" onClick={remove}>Delete</button>}
+            {selectedId !== 'new' && canDesign && <button className="btn btn-danger" onClick={remove}>Delete</button>}
             {saved && <span className="ink-good" style={{ fontSize: 12.5 }}>✓ saved</span>}
             {error && <span className="ink-critical" style={{ fontSize: 12.5 }}>{error}</span>}
             <span className="muted" style={{ fontSize: 11.5, marginLeft: 'auto' }}>Place designed stations on the floor from the Factory page.</span>
@@ -456,19 +456,21 @@ function StationTypesTab({ state }) {
   );
 }
 
-export function Workflows({ state }) {
+export function Workflows({ state, user }) {
   const [tab, setTab] = useState('workflows');
+  const canDesign = user?.role === 'manager';
   return (
     <>
       <div className="page-head">
         <h1>Design studio</h1>
         <span className="sub">Design your stations, chain them into workflows, nest workflows inside workflows</span>
+        {!canDesign && <span className="muted" style={{ fontSize: 12 }}>view only — manager role can edit designs</span>}
       </div>
       <div className="filters">
         <button className={`chip${tab === 'workflows' ? ' active' : ''}`} onClick={() => setTab('workflows')}>🔁 Workflows ({state.workflows.length})</button>
         <button className={`chip${tab === 'types' ? ' active' : ''}`} onClick={() => setTab('types')}>⚙️ Station types ({state.stationTypes.length})</button>
       </div>
-      {tab === 'workflows' ? <WorkflowsTab state={state} /> : <StationTypesTab state={state} />}
+      {tab === 'workflows' ? <WorkflowsTab state={state} canDesign={canDesign} /> : <StationTypesTab state={state} canDesign={canDesign} />}
     </>
   );
 }

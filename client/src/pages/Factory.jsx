@@ -5,8 +5,9 @@ import { Badge, STATION_STATUS, typeById } from '../ui.jsx';
 const CELL = 64;
 const GUTTER = 110; // warehouse / dispatch zones flanking the grid
 
-export function Factory({ state }) {
+export function Factory({ state, user }) {
   const { stations, orders, workflows, stationTypes, now } = state;
+  const canDesign = user?.role === 'manager';
   const grid = state.factory.grid ?? { w: 20, h: 12 };
   const [mode, setMode] = useState('select'); // select | remove | place:<typeId>
   const [selectedId, setSelectedId] = useState(null);
@@ -146,14 +147,15 @@ export function Factory({ state }) {
 
       <div className="filters" style={{ alignItems: 'center' }}>
         <button className={`chip${mode === 'select' ? ' active' : ''}`} onClick={() => setMode('select')}>🖱 Select</button>
-        {stationTypes.map((t) => (
+        {canDesign && stationTypes.map((t) => (
           <button key={t.id} className={`chip${mode === `place:${t.id}` ? ' active' : ''}`}
             title={`${t.description} — footprint ${t.w ?? 1}×${t.h ?? 1} cells`}
             onClick={() => setMode(mode === `place:${t.id}` ? 'select' : `place:${t.id}`)}>
             {t.icon} {t.name} <span className="muted" style={{ fontSize: 10 }}>{t.w ?? 1}×{t.h ?? 1}</span>
           </button>
         ))}
-        <button className={`chip${mode === 'remove' ? ' active' : ''}`} onClick={() => setMode(mode === 'remove' ? 'select' : 'remove')}>🗑 Remove</button>
+        {canDesign && <button className={`chip${mode === 'remove' ? ' active' : ''}`} onClick={() => setMode(mode === 'remove' ? 'select' : 'remove')}>🗑 Remove</button>}
+        {!canDesign && <span className="muted" style={{ fontSize: 12 }}>view only — manager role can edit the floor</span>}
         <span style={{ flex: 1 }} />
         <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           show route
@@ -162,7 +164,7 @@ export function Factory({ state }) {
             {workflows.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </label>
-        {floorForm ? (
+        {canDesign && (floorForm ? (
           <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
             <input className="mini-input" type="number" min="8" max="60" style={{ width: 62 }} value={floorForm.w}
               onChange={(e) => setFloorForm({ ...floorForm, w: Number(e.target.value) })} />
@@ -182,7 +184,7 @@ export function Factory({ state }) {
           </span>
         ) : (
           <button className="chip" onClick={() => setFloorForm({ w: grid.w, h: grid.h })}>⛶ Floor {grid.w}×{grid.h}</button>
-        )}
+        ))}
       </div>
 
       {mode.startsWith('place:') && (
@@ -266,19 +268,21 @@ export function Factory({ state }) {
       {selected && (
         <div className="card mt" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 24 }}>{typeById(state, selected.typeId)?.icon}</span>
-          <input className="mini-input" style={{ fontWeight: 700, width: 200 }} value={selected.name}
-            onChange={(e) => api.updateStation(selected.id, { name: e.target.value }).catch(() => {})} />
+          <input className="mini-input" style={{ fontWeight: 700, width: 200 }} value={selected.name} readOnly={!canDesign}
+            onChange={(e) => canDesign && api.updateStation(selected.id, { name: e.target.value }).catch(() => {})} />
           <Badge meta={STATION_STATUS[selected.status]} />
           <span className="muted" style={{ fontSize: 12.5 }}>
             {typeById(state, selected.typeId)?.name} · {selected.w ?? 1}×{selected.h ?? 1} cells at ({selected.x}, {selected.y}) · {selected.unitsToday} units today
             {selected.currentOrderId ? ` · working on ${orders.find((o) => o.id === selected.currentOrderId)?.code}` : ''}
           </span>
           <span style={{ flex: 1 }} />
-          <button className="btn" onClick={() => setMoving(!moving)}>{moving ? 'Cancel move' : '✥ Move'}</button>
-          <button className="btn btn-danger" disabled={!!selected.currentOrderId}
-            onClick={() => api.removeStation(selected.id).then(() => setSelectedId(null)).catch((e) => setError(e.message))}>
-            Dismantle
-          </button>
+          {canDesign && <button className="btn" onClick={() => setMoving(!moving)}>{moving ? 'Cancel move' : '✥ Move'}</button>}
+          {canDesign && (
+            <button className="btn btn-danger" disabled={!!selected.currentOrderId}
+              onClick={() => api.removeStation(selected.id).then(() => setSelectedId(null)).catch((e) => setError(e.message))}>
+              Dismantle
+            </button>
+          )}
         </div>
       )}
     </>

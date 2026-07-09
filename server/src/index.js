@@ -7,6 +7,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { state, subscribe, persist } from './store.js';
 import { api, serializeState } from './routes.js';
 import { startSimulator } from './simulator.js';
+import { attachUser, authRouter, userFromRequest, AUTH_ENABLED } from './auth.js';
+import { startMqttBridge } from './mqtt.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const SIMULATOR = process.env.SIMULATOR !== 'off';
@@ -14,6 +16,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+app.use(attachUser);
+app.use('/api/auth', authRouter);
 app.use('/api', api);
 
 // In production the server also serves the built client.
@@ -35,7 +39,11 @@ function broadcast(message) {
   }
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  if (!userFromRequest(req)) {
+    ws.close(4401, 'login required');
+    return;
+  }
   ws.send(JSON.stringify({ type: 'state', state: serializeState() }));
 });
 
@@ -58,7 +66,9 @@ process.on('SIGTERM', () => {
 
 server.listen(PORT, () => {
   console.log(`RoboFlow control room server on http://localhost:${PORT} (factory: ${state.factory.name})`);
+  console.log(`Auth: ${AUTH_ENABLED ? 'on (AUTH=off to disable)' : 'OFF — every visitor acts as manager'}`);
   state.factory.simulator = SIMULATOR;
   if (SIMULATOR) startSimulator();
-  else console.log('Simulator off — waiting for external telemetry on POST /api/ingest');
+  else console.log('Simulator off — waiting for external telemetry on POST /api/ingest or MQTT');
+  startMqttBridge();
 });

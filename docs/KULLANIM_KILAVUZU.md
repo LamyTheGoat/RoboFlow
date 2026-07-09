@@ -57,6 +57,20 @@ npm start          # sunucuyu başlatır → http://localhost:4000
 Sağ üstte yeşil **"Live"** yazısını görüyorsanız bağlantı canlıdır; ekran
 saniyede bir kendini günceller, hiçbir şeye basmanıza gerek yoktur.
 
+### 3.1 Giriş ve roller
+
+Program açıldığında bir **giriş ekranı** karşılar. İki tür kullanıcı vardır:
+
+| Rol | Ne yapabilir? |
+|---|---|
+| **manager** (yönetici) | Her şey: istasyon/iş akışı tasarlamak, zemini düzenlemek, üretimi yönetmek. |
+| **operator** (operatör) | Üretimi yönetmek: istasyon komutları, acil durdurma, sipariş girmek, uyarı onaylamak. Tasarım sayfaları ona **salt okunur**dur ("view only" yazar). |
+
+İlk kurulumda iki hazır kullanıcı gelir: `manager / manager123` ve
+`operator / operator123`. **Bu şifreleri ilk fırsatta değiştirin** (kurulumu
+yapan kişi `POST /api/auth/password` ile değiştirebilir). Sağ üstteki adınıza
+bitişik **Sign out** düğmesi oturumu kapatır.
+
 ---
 
 ## 4. Ekranın genel yapısı
@@ -260,13 +274,23 @@ durumu izleyebilirsiniz.
 
 ## 8. Gerçek robotları bağlamak (teknik özet)
 
-Bu bölüm kurulumu yapacak teknik kişi içindir: gerçek makineler, telemetrilerini
-`POST /api/ingest` adresine küçük JSON mesajları olarak gönderir
-(ilerleme yüzdesi, "parti bitti" sinyali, arıza durumu, robot sıcaklığı).
-Simülatör `SIMULATOR=off` ile kapatılır; ekranlar ve işleyiş hiç değişmez.
-Mesaj biçimleri ve komut uçları için proje kökündeki `README.md` dosyasına
-bakın. Kontrol odasından makinelere komut gönderimi (start/stop'un fiziksel
-makineye iletilmesi) için ayrıca bir köprü (ör. MQTT) kurulması gerekir.
+Bu bölüm kurulumu yapacak teknik kişi içindir. Bağlantı **iki yönlüdür**:
+
+- **Makineden kontrol odasına:** gerçek makineler telemetrilerini
+  `POST /api/ingest` adresine küçük JSON mesajları olarak gönderir (ilerleme
+  yüzdesi, "parti bitti" sinyali, arıza, robot sıcaklığı) ya da bir MQTT
+  broker'ı üzerinden `roboflow/telemetry` konusuna yayınlar.
+- **Kontrol odasından makineye:** operatörün verdiği her komut
+  (start/pause/stop/arıza sıfırlama/acil durdurma) bir **komut kuyruğuna**
+  yazılır. Saha tarafı bunları iki yoldan alabilir: kuyruğu sorgulayıp
+  onaylayarak (`GET /api/commands?status=pending` → uygula →
+  `POST /api/commands/:id/ack`) ya da MQTT ile — sunucu her komutu anında
+  `roboflow/commands/<istasyonId>` konusuna yayınlar.
+
+MQTT için sunucu `MQTT_URL` ortam değişkeniyle başlatılır. Simülatör
+`SIMULATOR=off` ile kapatılır; ekranlar ve işleyiş hiç değişmez. Makine
+uçlarını yetkilendirmek için `INGEST_TOKEN` tanımlanabilir. Ayrıntılar ve
+mesaj biçimleri için proje kökündeki `README.md` dosyasına bakın.
 
 ---
 
