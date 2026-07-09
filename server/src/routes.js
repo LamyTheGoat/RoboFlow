@@ -19,7 +19,22 @@ export function serializeState() {
   return {
     ...state,
     now: Date.now(),
-    orders: state.orders.map((o) => ({ ...o, location: orderLocation(o) })),
+    orders: state.orders.map((o) => {
+      // Live production counters: overall order progress (finished stages plus
+      // the running stage's station progress) and units done at the current step.
+      const station = state.stations.find((s) => s.currentOrderId === o.id);
+      const stageActive = o.stages[o.stageIndex]?.status === 'active';
+      const stageFrac = stageActive && station ? station.progress / 100 : 0;
+      const overallPct = o.status === 'completed'
+        ? 100
+        : Math.min(99, Math.round(((o.stageIndex + stageFrac) / Math.max(1, o.stages.length)) * 100));
+      return {
+        ...o,
+        location: orderLocation(o),
+        overallPct,
+        currentStageUnitsDone: stageActive && station ? Math.min(o.qty, Math.floor((station.progress / 100) * o.qty)) : null,
+      };
+    }),
     robots: state.robots.map(({ _tempAlerted, ...r }) => r),
     workflows: state.workflows.map((w) => ({ ...w, flat: flattenWorkflow(w.id), totals: workflowTotals(w.id) })),
     stationTypes: state.stationTypes.map((t) => ({ ...t, measuredSecPerUnit: t.composite ? null : measuredSecPerUnit(t.id) })),

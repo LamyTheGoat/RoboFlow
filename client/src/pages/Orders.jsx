@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
-import { Badge, StagePips, ORDER_STATUS, fmtDate } from '../ui.jsx';
+import { Badge, StagePips, ORDER_STATUS, fmtDate, Bar } from '../ui.jsx';
 
 const FILTERS = ['all', 'in_progress', 'queued', 'on_hold', 'completed', 'cancelled'];
 
@@ -70,7 +70,7 @@ export function Orders({ state }) {
           <thead>
             <tr>
               <th>Order</th><th>Product</th><th>Customer</th><th>Qty</th><th>Priority</th>
-              <th>Status</th><th>Workflow</th><th>Location</th><th>Due</th><th></th>
+              <th>Status</th><th style={{ minWidth: 120 }}>Produced</th><th>Workflow</th><th>Location</th><th>Due</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -90,6 +90,25 @@ export function Orders({ state }) {
                     </select>
                   </td>
                   <td><Badge meta={ORDER_STATUS[o.status]} /></td>
+                  <td>
+                    {o.status === 'cancelled' ? (
+                      <span className="muted">—</span>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ flex: 1 }}><Bar value={o.overallPct} max={100} tone={o.status === 'completed' ? 'good' : 'accent'} /></div>
+                          <span className="mono muted" style={{ fontSize: 11.5 }}>{o.overallPct}%</span>
+                        </div>
+                        <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>
+                          {o.status === 'completed'
+                            ? `${o.qty} / ${o.qty} units shipped`
+                            : o.currentStageUnitsDone != null
+                              ? `≈ ${o.currentStageUnitsDone} / ${o.qty} units at ${o.stages[o.stageIndex]?.name} · step ${o.stageIndex + 1}/${o.stages.length}`
+                              : `step ${Math.min(o.stageIndex + 1, o.stages.length)}/${o.stages.length} — waiting`}
+                        </div>
+                      </>
+                    )}
+                  </td>
                   <td><StagePips stages={o.stages} /></td>
                   <td className="muted">{o.location}</td>
                   <td className={overdue ? 'ink-critical' : 'muted'}>{fmtDate(o.dueDate)}{overdue ? ' ⚠' : ''}</td>
@@ -110,7 +129,7 @@ export function Orders({ state }) {
                 </tr>
               );
             })}
-            {visible.length === 0 && <tr><td colSpan="10" className="empty">No orders match this filter.</td></tr>}
+            {visible.length === 0 && <tr><td colSpan="11" className="empty">No orders match this filter.</td></tr>}
           </tbody>
         </table>
       </div>

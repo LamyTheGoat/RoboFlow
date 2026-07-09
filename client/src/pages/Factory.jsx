@@ -45,8 +45,20 @@ export function Factory({ state, user }) {
   });
 
   // Pick one representative station per workflow step for the conveyor path.
+  // Eligibility must match the dispatcher exactly: the station's type has to
+  // cover the step AND its workflow binding has to allow this line (the route
+  // workflow itself or any workflow nested in it).
   const { pathPoints, missingSteps } = useMemo(() => {
     if (!wf) return { pathPoints: [], missingSteps: [] };
+    const chain = new Set();
+    const walkWf = (id) => {
+      if (!id || chain.has(id)) return;
+      const w = workflows.find((x) => x.id === id);
+      if (!w) return;
+      chain.add(id);
+      for (const s of w.steps ?? []) if (s.kind === 'workflow') walkWf(s.refId);
+    };
+    walkWf(wfId);
     const serves = (station, leafTypeId) => {
       const walk = (tid, seen = new Set()) => {
         if (tid === leafTypeId) return true;
@@ -57,16 +69,20 @@ export function Factory({ state, user }) {
       };
       return walk(station.typeId);
     };
+    const bindingAllows = (s) => !s.servesWorkflowIds?.length || s.servesWorkflowIds.some((id) => chain.has(id));
     const points = [{ x: GUTTER / 2, y: boardH / 2, label: '📥' }];
     const missing = [];
     for (const step of wf.flat) {
-      const st = stations.filter((s) => serves(s, step.typeId)).sort((a, b) => a.id.localeCompare(b.id))[0];
+      const st = stations
+        .filter((s) => serves(s, step.typeId) && bindingAllows(s))
+        // prefer a station dedicated to this line over a general-purpose one
+        .sort((a, b) => (b.servesWorkflowIds?.length ? 1 : 0) - (a.servesWorkflowIds?.length ? 1 : 0) || a.id.localeCompare(b.id))[0];
       if (st) points.push({ ...cellCenter(st), label: step.icon, stationId: st.id });
       else missing.push(step);
     }
     points.push({ x: boardW - GUTTER / 2, y: boardH / 2, label: '🚚' });
     return { pathPoints: points, missingSteps: missing };
-  }, [wfId, stations, stationTypes, wf?.flat?.length]);
+  }, [wfId, stations, stationTypes, workflows, wf?.flat?.length]);
 
   // Order pucks: live positions of every open order on the floor.
   const pucks = useMemo(() => {
@@ -213,7 +229,8 @@ export function Factory({ state, user }) {
       {moving && <div className="hint-bar">Click an empty cell to move <b>{selected?.name}</b> there.</div>}
       {missingSteps.length > 0 && (
         <div className="hint-bar warn">
-          ⚠ Route incomplete — no station can do: {missingSteps.map((s) => `${s.icon} ${s.name}`).join(', ')}. Place one from the palette.
+          ⚠ Route incomplete — no station is available for: {missingSteps.map((s) => `${s.icon} ${s.name}`).join(', ')}.
+          Place one from the palette, or check whether the existing ones are dedicated to other lines.
         </div>
       )}
 
@@ -273,7 +290,7 @@ export function Factory({ state, user }) {
 
           {pucks.map(({ o, x, y, done, waiting }) => (
             <div key={o.id} className={`puck${done ? ' done' : ''}${waiting ? ' waiting' : ''} prio-${o.priority}`}
-              style={{ left: x, top: y }} title={`${o.code} — ${o.qty} units · ${o.location}`}>
+              style={{ left: x, top: y }} title={`${o.code} — ${o.qty} units · ${o.overallPct}% · ${o.location}`}>
               {o.code.replace('ORD-', '#')}
             </div>
           ))}
