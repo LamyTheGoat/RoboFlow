@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { Badge, STATION_STATUS, typeById } from '../ui.jsx';
 
@@ -17,9 +17,19 @@ export function Factory({ state, user }) {
   const [hover, setHover] = useState(null); // {x, y} grid cell under the cursor
   const [rotated, setRotated] = useState(false); // swap footprint w/h when placing
   const [floorForm, setFloorForm] = useState(null); // {w, h} while editing floor size
+  // Local drafts for the station panel. The live state refreshes once a second,
+  // so edits must not read from (or render) the last broadcast — otherwise fast
+  // consecutive chip clicks compute from stale data and overwrite each other.
+  const [bindDraft, setBindDraft] = useState(null);
+  const [nameDraft, setNameDraft] = useState(null);
   const boardRef = useRef(null);
 
   const selected = stations.find((s) => s.id === selectedId) ?? null;
+  useEffect(() => {
+    setBindDraft(null);
+    setNameDraft(null);
+  }, [selectedId]);
+  const bindings = bindDraft ?? selected?.servesWorkflowIds ?? [];
   const wf = workflows.find((w) => w.id === wfId);
 
   const boardW = GUTTER * 2 + grid.w * CELL;
@@ -274,8 +284,15 @@ export function Factory({ state, user }) {
         <div className="card mt" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 24 }}>{typeById(state, selected.typeId)?.icon}</span>
-          <input className="mini-input" style={{ fontWeight: 700, width: 200 }} value={selected.name} readOnly={!canDesign}
-            onChange={(e) => canDesign && api.updateStation(selected.id, { name: e.target.value }).catch(() => {})} />
+          <input className="mini-input" style={{ fontWeight: 700, width: 200 }} value={nameDraft ?? selected.name} readOnly={!canDesign}
+            onChange={(e) => canDesign && setNameDraft(e.target.value)}
+            onBlur={() => {
+              if (nameDraft && nameDraft.trim() && nameDraft !== selected.name) {
+                api.updateStation(selected.id, { name: nameDraft.trim() }).catch((e) => setError(e.message));
+              }
+              setNameDraft(null);
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} />
           <Badge meta={STATION_STATUS[selected.status]} />
           <span className="muted" style={{ fontSize: 12.5 }}>
             {typeById(state, selected.typeId)?.name} · {selected.w ?? 1}×{selected.h ?? 1} cells at ({selected.x}, {selected.y}) · {selected.unitsToday} units today
@@ -294,18 +311,21 @@ export function Factory({ state, user }) {
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="muted" style={{ fontSize: 12 }}>
-            Serves:{!selected.servesWorkflowIds?.length && <b style={{ color: 'var(--ink-2)' }}> every line</b>}
+            Serves:{!bindings.length && <b style={{ color: 'var(--ink-2)' }}> every line</b>}
           </span>
           {workflows.map((w) => {
-            const on = selected.servesWorkflowIds?.includes(w.id);
+            const on = bindings.includes(w.id);
             return (
               <button key={w.id} className={`chip${on ? ' active' : ''}`} style={{ padding: '2px 10px', fontSize: 11.5 }}
                 disabled={!canDesign}
                 title={canDesign ? 'Toggle whether this station accepts work from this line' : 'manager role required'}
                 onClick={() => {
-                  const cur = selected.servesWorkflowIds ?? [];
-                  const next = on ? cur.filter((id) => id !== w.id) : [...cur, w.id];
-                  api.updateStation(selected.id, { servesWorkflowIds: next }).catch((e) => setError(e.message));
+                  const next = on ? bindings.filter((id) => id !== w.id) : [...bindings, w.id];
+                  setBindDraft(next); // instant + race-free: next click computes from this
+                  api.updateStation(selected.id, { servesWorkflowIds: next }).catch((e) => {
+                    setError(e.message);
+                    setBindDraft(null);
+                  });
                 }}>
                 {on ? '✓ ' : ''}{w.name}
               </button>

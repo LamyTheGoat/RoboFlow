@@ -62,8 +62,14 @@ export function stationCommand(stationId, action, issuedBy = 'operator') {
       break;
     case 'reset_fault':
       if (station.status !== 'fault') throw new Error('station has no active fault');
-      station.status = 'idle';
-      for (const r of state.robots) if (r.stationId === station.id && r.status === 'fault') r.status = 'idle';
+      // Resume the loaded batch — never report 'idle' while an order is on the
+      // station, or the dispatcher could double-assign and strand the order.
+      station.status = station.currentOrderId ? 'running' : 'idle';
+      for (const r of state.robots) {
+        if (r.stationId === station.id && r.status === 'fault') {
+          r.status = station.currentOrderId ? 'working' : 'idle';
+        }
+      }
       break;
     default:
       throw new Error(`unknown action ${action}`);

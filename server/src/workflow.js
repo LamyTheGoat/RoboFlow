@@ -139,7 +139,10 @@ export function dispatchOrders() {
   for (const order of waiting) {
     const stage = order.stages[order.stageIndex];
     const canServe = (s) => typeServes(s.typeId, stage.typeId) && stationServesOrder(s, order);
-    const station = state.stations.find((s) => s.status === 'idle' && canServe(s));
+    // Safety invariant: never assign a station that still holds a batch, even
+    // if its status says 'idle' (an operator command or a hardware gateway can
+    // report any status) — double-assignment would strand the loaded order.
+    const station = state.stations.find((s) => s.status === 'idle' && !s.currentOrderId && canServe(s));
     if (!station) {
       if (!stage.noStationAlerted && !state.stations.some(canServe)) {
         stage.noStationAlerted = true;
@@ -243,6 +246,33 @@ export function cancelOrder(orderId, issuedBy = 'operator') {
   logEvent('order', issuedBy, `${order.code} cancelled${consumedAny ? ' (materials already issued stay consumed)' : ''}`);
   dispatchOrders();
   return order;
+}
+
+// Pull the loaded batch off a station and put the order back in the queue —
+// the escape hatch when a station breaks down for good. Materials stay issued
+// (inputsConsumed persists on the stage), so re-dispatching elsewhere does not
+// double-consume; only this step's progress restarts.
+export function releaseBatch(stationId, issuedBy = 'operator') {
+  const station = state.stations.find((s) => s.id === stationId);
+  if (!station) throw new Error(`unknown station ${stationId}`);
+  if (!station.currentOrderId) throw new Error('station has no batch to release');
+  const order = findOrder(station.currentOrderId);
+  station.currentOrderId = null;
+  station.progress = 0;
+  if (station.status === 'running') station.status = 'idle';
+  for (const r of state.robots) if (r.stationId === station.id && r.status === 'working') r.status = 'idle';
+  if (order) {
+    const stage = order.stages[order.stageIndex];
+    if (stage?.status === 'active') {
+      stage.status = 'pending';
+      stage.startedAt = null;
+      stage.stationId = null;
+    }
+    order.status = 'queued';
+    logEvent('command', issuedBy, `${order.code} batch released from ${station.name} — back in the queue (materials stay issued)`);
+  }
+  dispatchOrders();
+  return station;
 }
 
 // Rebuild a waiting order's routing from the project's CURRENT workflow —

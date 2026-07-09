@@ -88,6 +88,14 @@ export function Stations({ state }) {
                   <button className="btn btn-danger" disabled={busy != null}
                     onClick={() => command(s.id, 'reset_fault')}>Reset fault</button>
                 )}
+                {s.currentOrderId && s.status !== 'running' && (
+                  <button className="btn" disabled={busy != null}
+                    title="Pull the loaded batch off this station and put the order back in the queue (materials stay issued)"
+                    onClick={() => window.confirm(`Release ${order?.code ?? 'the batch'} from ${s.name}? The order goes back in the queue; this step's progress restarts.`) &&
+                      api.releaseBatch(s.id).catch((err) => setError(err.message))}>
+                    ↩ Release batch
+                  </button>
+                )}
                 <span className="muted" style={{ marginLeft: 'auto', fontSize: 12, alignSelf: 'center' }}>
                   util {Math.round(s.utilization)}%
                 </span>

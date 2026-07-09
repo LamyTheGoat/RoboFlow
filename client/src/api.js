@@ -43,6 +43,7 @@ export const api = {
   createInventoryItem: (body) => send('POST', '/api/inventory', body),
   adoptMeasured: (typeId) => send('POST', `/api/station-types/${typeId}/adopt-measured`),
   cancelOrder: (orderId) => send('POST', `/api/orders/${orderId}/cancel`),
+  releaseBatch: (stationId) => send('POST', `/api/stations/${stationId}/release-batch`),
   rerouteOrder: (orderId) => send('POST', `/api/orders/${orderId}/reroute`),
   adjustStock: (sku, qtyDelta) => send('PATCH', `/api/inventory/${sku}`, { qtyDelta }),
   updateInventoryItem: (sku, body) => send('PATCH', `/api/inventory/${sku}`, body),

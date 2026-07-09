@@ -6,7 +6,7 @@ import { requireUser, requireManager, gatewayGuard } from './auth.js';
 import {
   createOrder, orderLocation, dispatchOrders,
   placeStation, updateStation, removeStation,
-  cancelOrder, rerouteOrder, totalReserved,
+  cancelOrder, rerouteOrder, totalReserved, releaseBatch,
 } from './workflow.js';
 import {
   flattenWorkflow, workflowTotals, measuredSecPerUnit,
@@ -107,6 +107,7 @@ api.get('/state', (_req, res) => res.json(serializeState()));
 
 // ---- operator commands ----------------------------------------------------------
 api.post('/stations/:id/command', handle((req) => stationCommand(req.params.id, req.body.action, req.user.username)));
+api.post('/stations/:id/release-batch', handle((req) => releaseBatch(req.params.id, req.user.username)));
 api.post('/emergency-stop', handle((req) => ({ stations: emergencyStop(req.user.username) })));
 api.post('/alerts/:id/ack', handle((req) => acknowledgeAlert(req.params.id, req.user.username)));
 
@@ -250,6 +251,12 @@ api.patch('/inventory/:sku', handle((req) => {
   if (req.body.qtyDelta !== undefined) {
     const delta = Number(req.body.qtyDelta);
     if (!Number.isFinite(delta) || delta === 0) throw new Error('qtyDelta must be a non-zero number');
+    if (delta < 0) {
+      const reserved = totalReserved(item.sku);
+      if (item.qty + delta < reserved) {
+        throw new Error(`cannot remove below reserved stock — ${reserved} ${item.unit} are reserved for running orders (cancel them first)`);
+      }
+    }
     item.qty = Math.max(0, Math.min(item.capacity, +(item.qty + delta).toFixed(1)));
     logEvent('warehouse', req.user.username, `Stock ${delta > 0 ? 'received' : 'adjusted'}: ${delta > 0 ? '+' : ''}${delta} ${item.unit} ${item.name} → ${item.qty} ${item.unit}`);
     dispatchOrders();
