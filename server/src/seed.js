@@ -2,7 +2,7 @@
 // workflows (including one nested workflow as a recursion example), physical
 // stations placed on the factory grid, and three product lines.
 
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 export const GRID_W = 20;
 export const GRID_H = 12;
 
@@ -10,15 +10,19 @@ export function buildSeedState() {
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;
 
+  // Station types define default inputs AND outputs (both are real inventory
+  // items — raw materials or half products). Any workflow step can override
+  // both, so the same Paint Booth can coat cut sheets in one step and a fully
+  // assembled unit two steps later.
   const stationTypes = [
-    type('tp_cut', 'Cutter', '✂️', 3, 'Cuts raw sheets and profiles to size', [inp('steel-sheet', 2)], 2, 1),
-    type('tp_weld', 'Welder', '🔥', 4, 'Joins cut parts into frames', [inp('welding-wire', 0.4)], 1, 1),
-    type('tp_asm', 'Assembler', '🔧', 5, 'Mounts components onto frames', [inp('fastener-m8', 10)], 2, 2),
-    type('tp_paint', 'Paint Booth', '🎨', 3, 'Applies protective coating', [inp('paint-ral7016', 0.4)], 2, 1),
-    type('tp_qa', 'Inspector', '🔍', 2, 'Vision-checks every unit', [], 1, 1),
-    type('tp_pack', 'Packager', '📦', 1.5, 'Boxes finished goods for dispatch', [inp('carton-m', 1)], 2, 1),
+    type('tp_cut', 'Cutter', '✂️', 3, 'Cuts raw sheets and profiles to size', [inp('steel-sheet', 2)], [inp('cut-parts', 1)], 2, 1),
+    type('tp_weld', 'Welder', '🔥', 4, 'Joins cut parts into frames', [inp('cut-parts', 1), inp('welding-wire', 0.4)], [inp('welded-frame', 1)], 1, 1),
+    type('tp_asm', 'Assembler', '🔧', 5, 'Mounts components onto bodies', [inp('welded-frame', 1), inp('fastener-m8', 10)], [inp('assembled-unit', 1)], 2, 2),
+    type('tp_paint', 'Paint Booth', '🎨', 3, 'Coats whatever is fed to it', [inp('assembled-unit', 1), inp('paint-ral7016', 0.4)], [inp('coated-unit', 1)], 2, 1),
+    type('tp_qa', 'Inspector', '🔍', 2, 'Vision-checks every unit (pass-through)', [], [], 1, 1),
+    type('tp_pack', 'Packager', '📦', 1.5, 'Boxes finished goods for dispatch', [inp('coated-unit', 1), inp('carton-m', 1)], [], 2, 1),
     {
-      ...type('tp_finishcell', 'Finishing Cell', '🏭', 0, 'All-in-one cell: paints, inspects and packs', [], 2, 2),
+      ...type('tp_finishcell', 'Finishing Cell', '🏭', 0, 'All-in-one cell: paints, inspects and packs', [], [], 2, 2),
       composite: true,
       children: ['tp_paint', 'tp_qa', 'tp_pack'],
     },
@@ -39,23 +43,23 @@ export function buildSeedState() {
     {
       id: 'wf_atlas',
       name: 'Arm Base Line',
-      description: 'Full build of the AX-100 robotic arm base.',
+      description: 'Full build of the AX-100 robotic arm base (ships unpainted).',
       steps: [
         step('station', 'tp_cut', [inp('steel-sheet', 2)]),
-        step('station', 'tp_weld', [inp('welding-wire', 0.4)]),
-        step('station', 'tp_asm', [inp('fastener-m8', 12), inp('servo-motor', 1), inp('control-pcb', 1)]),
+        step('station', 'tp_weld', [inp('cut-parts', 1), inp('welding-wire', 0.4)]),
+        step('station', 'tp_asm', [inp('welded-frame', 1), inp('fastener-m8', 12), inp('servo-motor', 1), inp('control-pcb', 1)]),
         step('station', 'tp_qa'),
-        step('station', 'tp_pack', [inp('carton-l', 1)]),
+        step('station', 'tp_pack', [inp('assembled-unit', 1), inp('carton-l', 1)]),
       ],
       outputs: [{ sku: 'finished-goods', qty: 1 }],
     },
     {
       id: 'wf_borealis',
       name: 'Conveyor Drive Line',
-      description: 'CD-40 drive units. Ends with the shared Finishing & Dispatch workflow.',
+      description: 'CD-40 drive units: aluminium body assembled straight from cut parts, then the shared finishing tail.',
       steps: [
         step('station', 'tp_cut', [inp('alu-profile', 3)]),
-        step('station', 'tp_asm', [inp('bearing-6204', 4), inp('servo-motor', 1), inp('fastener-m8', 8)]),
+        step('station', 'tp_asm', [inp('cut-parts', 1), inp('bearing-6204', 4), inp('servo-motor', 1), inp('fastener-m8', 8)]),
         step('workflow', 'wf_finish'),
       ],
       outputs: [{ sku: 'finished-goods', qty: 1 }],
@@ -63,10 +67,10 @@ export function buildSeedState() {
     {
       id: 'wf_cascade',
       name: 'Manifold Line',
-      description: 'HM-8 hydraulic manifolds. Ends with the shared Finishing & Dispatch workflow.',
+      description: 'HM-8 hydraulic manifolds: valves welded into the body, then the shared finishing tail.',
       steps: [
         step('station', 'tp_cut', [inp('steel-sheet', 1)]),
-        step('station', 'tp_weld', [inp('welding-wire', 0.2), inp('hydraulic-valve', 6)]),
+        step('station', 'tp_weld', [inp('cut-parts', 1), inp('welding-wire', 0.2), inp('hydraulic-valve', 6)], [inp('assembled-unit', 1)]),
         step('workflow', 'wf_finish'),
       ],
       outputs: [{ sku: 'finished-goods', qty: 1 }],
@@ -122,6 +126,13 @@ export function buildSeedState() {
     item('carton-s', 'Carton Box S', 'Packaging', 210, 'pcs', 100, 500),
     item('carton-m', 'Carton Box M', 'Packaging', 180, 'pcs', 100, 500),
     item('carton-l', 'Carton Box L', 'Packaging', 140, 'pcs', 80, 400),
+    // Half products (WIP): produced by stations, consumed by later steps.
+    // reorderPoint 0 = no low-stock warnings, no purchasing — they are made,
+    // not bought.
+    item('cut-parts', 'Cut Parts', 'Half product', 0, 'pcs', 0, 2000),
+    item('welded-frame', 'Welded Frame', 'Half product', 0, 'pcs', 0, 1000),
+    item('assembled-unit', 'Assembled Unit', 'Half product', 0, 'pcs', 0, 1000),
+    item('coated-unit', 'Coated Unit', 'Half product', 0, 'pcs', 0, 1000),
   ];
 
   // Local flatten for seeding orders (catalog.js reads live state, which
@@ -133,20 +144,25 @@ export function buildSeedState() {
     const out = (wf.steps ?? []).flatMap((s) => {
       if (s.kind === 'workflow') return flatten(s.refId, path);
       const t = stationTypes.find((x) => x.id === s.refId);
-      return [{ name: t.name, typeId: t.id, icon: t.icon, inputs: s.inputs?.length ? s.inputs : t.inputs, timeSecPerUnit: t.timeSecPerUnit }];
+      return [{
+        name: t.name, typeId: t.id, icon: t.icon,
+        inputs: s.inputs?.length ? s.inputs : t.inputs,
+        outputs: s.outputs?.length ? s.outputs : t.outputs,
+        timeSecPerUnit: t.timeSecPerUnit,
+      }];
     });
     path.delete(wfId);
     return out;
   };
   const stagesFor = (projectId) =>
     flatten(projects.find((p) => p.id === projectId).workflowId).map((s) => ({
-      ...s, status: 'pending', startedAt: null, finishedAt: null, stationId: null,
+      ...s, status: 'pending', startedAt: null, finishedAt: null, stationId: null, inputsConsumed: false,
     }));
 
   const order = (id, code, projectId, customer, qty, priority, created, due) => ({
     id, code, projectId, customer, qty, priority,
     status: 'queued', stageIndex: 0, stages: stagesFor(projectId),
-    materialsConsumed: false, createdAt: created, dueDate: due, completedAt: null,
+    createdAt: created, dueDate: due, completedAt: null,
   });
 
   const orders = [
@@ -176,11 +192,15 @@ export function buildSeedState() {
   };
 }
 
-function type(id, name, icon, timeSecPerUnit, description, inputs, w = 1, h = 1) {
-  return { id, name, icon, timeSecPerUnit, description, inputs, outputs: [], composite: false, children: [], w, h };
+function type(id, name, icon, timeSecPerUnit, description, inputs, outputs, w = 1, h = 1) {
+  return { id, name, icon, timeSecPerUnit, description, inputs, outputs, composite: false, children: [], w, h };
 }
 const inp = (sku, qty) => ({ sku, qty });
-const step = (kind, refId, inputs) => ({ kind, refId, ...(inputs ? { inputs } : {}) });
+const step = (kind, refId, inputs, outputs) => ({
+  kind, refId,
+  ...(inputs ? { inputs } : {}),
+  ...(outputs ? { outputs } : {}),
+});
 
 function station(id, name, typeId, x, y) {
   return {

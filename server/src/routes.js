@@ -51,6 +51,7 @@ function cleanSteps(raw) {
     kind: s.kind,
     refId: s.refId,
     ...(s.kind === 'station' && Array.isArray(s.inputs) && s.inputs.length ? { inputs: cleanInputs(s.inputs) } : {}),
+    ...(s.kind === 'station' && Array.isArray(s.outputs) && s.outputs.length ? { outputs: cleanInputs(s.outputs) } : {}),
   }));
 }
 
@@ -129,7 +130,9 @@ function readTypeBody(body, selfId) {
     description: (body.description ?? '').slice(0, 200),
     timeSecPerUnit: composite ? 0 : Math.max(0.5, Number(body.timeSecPerUnit) || 3),
     inputs: composite ? [] : cleanInputs(body.inputs),
-    outputs: cleanOutputs(body.outputs),
+    // Outputs are real inventory items too (usually half products) — what the
+    // station puts back into stock when a batch finishes.
+    outputs: composite ? [] : cleanInputs(body.outputs),
     composite,
     children,
     w: dim(body.w),
@@ -232,6 +235,29 @@ api.post('/station-types/:id/adopt-measured', requireManager, handle((req) => {
   type.timeSecPerUnit = measured;
   logEvent('designer', 'station-lab', `${type.icon} ${type.name}: designed time updated ${old}s → ${measured}s per unit (measured)`);
   return type;
+}));
+
+// New warehouse item — mainly for defining half products from the designer.
+api.post('/inventory', requireManager, handle((req) => {
+  const name = req.body.name?.trim();
+  if (!name) throw new Error('name is required');
+  const sku = (req.body.sku?.trim() || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!sku) throw new Error('could not derive a valid sku from that name');
+  if (state.inventory.some((i) => i.sku === sku)) throw new Error(`an item with sku "${sku}" already exists`);
+  const isHalf = (req.body.category ?? 'Half product') === 'Half product';
+  const item = {
+    sku,
+    name,
+    category: req.body.category?.trim() || 'Half product',
+    qty: Math.max(0, Number(req.body.qty) || 0),
+    unit: (req.body.unit?.trim() || 'pcs').slice(0, 8),
+    reorderPoint: isHalf ? 0 : Math.max(0, Number(req.body.reorderPoint) || 0),
+    capacity: Math.max(10, Number(req.body.capacity) || 1000),
+    consumedToday: 0,
+  };
+  state.inventory.push(item);
+  logEvent('designer', 'warehouse', `New ${item.category.toLowerCase()} defined: ${item.name}`);
+  return { __created: true, body: item };
 }));
 
 // ---- factory floor size ----------------------------------------------------------------

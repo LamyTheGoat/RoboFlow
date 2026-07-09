@@ -40,6 +40,7 @@ export const api = {
   createProject: (body) => send('POST', '/api/projects', body),
   updateProject: (id, body) => send('PATCH', `/api/projects/${id}`, body),
   updateFactory: (body) => send('PATCH', '/api/factory', body),
+  createInventoryItem: (body) => send('POST', '/api/inventory', body),
   adoptMeasured: (typeId) => send('POST', `/api/station-types/${typeId}/adopt-measured`),
   // auth
   me: () => send('GET', '/api/auth/me'),

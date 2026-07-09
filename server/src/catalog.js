@@ -25,12 +25,13 @@ export function typeServes(stationTypeId, leafTypeId) {
   return leafTypeIds(stationTypeId).includes(leafTypeId);
 }
 
-function leafStep(type, overrideInputs) {
+function leafStep(type, overrideInputs, overrideOutputs) {
   return {
     name: type.name,
     typeId: type.id,
     icon: type.icon,
     inputs: overrideInputs?.length ? overrideInputs : (type.inputs ?? []),
+    outputs: overrideOutputs?.length ? overrideOutputs : (type.outputs ?? []),
     timeSecPerUnit: type.timeSecPerUnit,
   };
 }
@@ -52,7 +53,7 @@ export function flattenWorkflow(workflowId, path = new Set()) {
       if (type.composite) {
         for (const leafId of leafTypeIds(type.id)) steps.push(leafStep(getType(leafId)));
       } else {
-        steps.push(leafStep(type, step.inputs));
+        steps.push(leafStep(type, step.inputs, step.outputs));
       }
     }
   }
@@ -78,9 +79,17 @@ export function measuredSecPerUnit(typeId) {
 
 // Aggregate materials + processing time per unit for a workflow. Measured time
 // falls back to the designed time for steps that haven't run yet.
+//
+// Material netting is *sequential*: walking the steps in order, an input is
+// first taken from what earlier steps of this same workflow produced (WIP),
+// and only the remainder counts as an external need. So a chain like
+// cut→(cut-parts)→weld nets to just the raw steel, while a half product
+// consumed before anything produces it stays an external need.
 export function workflowTotals(workflowId) {
   const flat = flattenWorkflow(workflowId);
-  const inputs = new Map();
+  const external = new Map(); // sku → qty that must come from stock
+  const balance = new Map(); // sku → WIP produced so far by earlier steps
+  const produced = new Map(); // sku → qty left over at the end
   let timeSecPerUnit = 0;
   let measuredTime = 0;
   let anyMeasured = false;
@@ -89,10 +98,21 @@ export function workflowTotals(workflowId) {
     const m = measuredSecPerUnit(step.typeId);
     measuredTime += m ?? step.timeSecPerUnit ?? 0;
     if (m != null) anyMeasured = true;
-    for (const inp of step.inputs) inputs.set(inp.sku, +((inputs.get(inp.sku) ?? 0) + inp.qty).toFixed(2));
+    for (const inp of step.inputs ?? []) {
+      const have = balance.get(inp.sku) ?? 0;
+      const fromWip = Math.min(have, inp.qty);
+      if (fromWip > 0) balance.set(inp.sku, +(have - fromWip).toFixed(2));
+      const need = +(inp.qty - fromWip).toFixed(2);
+      if (need > 0) external.set(inp.sku, +((external.get(inp.sku) ?? 0) + need).toFixed(2));
+    }
+    for (const out of step.outputs ?? []) {
+      balance.set(out.sku, +((balance.get(out.sku) ?? 0) + out.qty).toFixed(2));
+    }
   }
+  for (const [sku, qty] of balance) if (qty > 0) produced.set(sku, qty);
   return {
-    inputsPerUnit: [...inputs].map(([sku, qty]) => ({ sku, qty })),
+    inputsPerUnit: [...external].map(([sku, qty]) => ({ sku, qty })),
+    leftoverPerUnit: [...produced].map(([sku, qty]) => ({ sku, qty })),
     timeSecPerUnit: +timeSecPerUnit.toFixed(1),
     measuredSecPerUnit: anyMeasured ? +measuredTime.toFixed(1) : null,
   };
@@ -149,5 +169,6 @@ export function buildOrderStages(workflowId) {
     startedAt: null,
     finishedAt: null,
     stationId: null,
+    inputsConsumed: false,
   }));
 }

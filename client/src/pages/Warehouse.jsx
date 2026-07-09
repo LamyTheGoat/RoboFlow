@@ -1,6 +1,9 @@
 import { Badge, Bar, timeAgo } from '../ui.jsx';
 
 function stockMeta(item) {
+  // Half products are made on the floor, not bought — an empty WIP buffer is
+  // normal, so they never show reorder warnings.
+  if (item.category === 'Half product') return { label: 'WIP', tone: 'accent', icon: '⟳' };
   const ratio = item.qty / item.reorderPoint;
   if (ratio <= 0.5) return { label: 'Critical', tone: 'critical', icon: '⛔' };
   if (ratio <= 1) return { label: 'Low — reorder', tone: 'warning', icon: '⚠' };
@@ -9,7 +12,7 @@ function stockMeta(item) {
 
 export function Warehouse({ state }) {
   const { inventory, events, now } = state;
-  const low = inventory.filter((i) => i.qty <= i.reorderPoint).length;
+  const low = inventory.filter((i) => i.reorderPoint > 0 && i.qty <= i.reorderPoint).length;
   const warehouseEvents = events.filter((e) => e.type === 'warehouse').slice(0, 20);
   const categories = [...new Set(inventory.map((i) => i.category))];
 
@@ -31,7 +34,7 @@ export function Warehouse({ state }) {
                 <tr key={i.sku}>
                   <td>{i.name}</td>
                   <td className="muted">{i.category}</td>
-                  <td><Bar value={i.qty} max={i.capacity} markerAt={i.reorderPoint} tone={stockMeta(i).tone === 'good' ? 'accent' : stockMeta(i).tone} /></td>
+                  <td><Bar value={i.qty} max={i.capacity} markerAt={i.reorderPoint > 0 ? i.reorderPoint : undefined} tone={['good', 'accent'].includes(stockMeta(i).tone) ? 'accent' : stockMeta(i).tone} /></td>
                   <td className="num">{i.qty} <span className="muted">/ {i.capacity} {i.unit}</span></td>
                   <td className="num muted">{i.consumedToday} {i.unit}</td>
                   <td><Badge meta={stockMeta(i)} /></td>

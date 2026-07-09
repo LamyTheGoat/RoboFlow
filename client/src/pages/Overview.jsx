@@ -7,7 +7,7 @@ export function Overview({ state, goTo }) {
   const activeOrders = orders.filter((o) => o.status === 'in_progress' || o.status === 'queued').length;
   const held = orders.filter((o) => o.status === 'on_hold').length;
   const openAlerts = alerts.filter((a) => !a.acknowledged);
-  const lowStock = inventory.filter((i) => i.qty <= i.reorderPoint);
+  const lowStock = inventory.filter((i) => i.reorderPoint > 0 && i.qty <= i.reorderPoint);
 
   // Last 60 minutes of throughput, gaps filled with zeroes.
   const points = [];

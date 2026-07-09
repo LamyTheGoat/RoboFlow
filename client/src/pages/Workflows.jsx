@@ -41,14 +41,39 @@ function flattenDraft(state, steps, path = new Set()) {
     } else {
       const t = typeById(state, step.refId);
       if (!t) continue;
-      if (t.composite) out.push(...leafTypes(state.stationTypes, t.id).map((lt) => ({ ...lt, inputs: lt.inputs })));
-      else out.push({ ...t, inputs: step.inputs?.length ? step.inputs : t.inputs });
+      if (t.composite) out.push(...leafTypes(state.stationTypes, t.id));
+      else out.push({
+        ...t,
+        inputs: step.inputs?.length ? step.inputs : t.inputs,
+        outputs: step.outputs?.length ? step.outputs : t.outputs,
+      });
     }
   }
   return out;
 }
 
 const EMOJI_PRESETS = ['⚙️', '✂️', '🔥', '🔧', '🎨', '🔍', '📦', '🏭', '🤖', '⚡', '🧪', '💧', '🪚', '🧲', '🛠️', '🧊'];
+
+// One line of a step's material interface: either the override editor, or the
+// type-default summary with a "customize" link that copies defaults in.
+function StepIO({ state, label, list, defaults, onChange }) {
+  if (list?.length) {
+    return (
+      <div style={{ marginTop: 6 }}>
+        <div className="muted" style={{ fontSize: 11, marginBottom: 3 }}>{label} (customized for this step)</div>
+        <InputsEditor state={state} inputs={list} compact onChange={onChange} />
+      </div>
+    );
+  }
+  return (
+    <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+      {label}: {defaults?.length ? defaults.map((x) => `${x.qty}× ${skuName(state, x.sku)}`).join(', ') : 'nothing'}
+      {' '}· <a className="link" onClick={() =>
+        onChange(JSON.parse(JSON.stringify(defaults?.length ? defaults : [{ sku: state.inventory[0].sku, qty: 1 }])))
+      }>customize</a>
+    </div>
+  );
+}
 
 // ---- inputs (materials) row editor -----------------------------------------------
 function InputsEditor({ state, inputs, onChange, compact }) {
@@ -139,6 +164,27 @@ function WorkflowsTab({ state, canDesign }) {
   const anyMeasured = flat.some((f) => f.measuredSecPerUnit != null);
   const measuredTime = flat.reduce((s, f) => s + (f.measuredSecPerUnit ?? f.timeSecPerUnit ?? 0), 0);
 
+  // Material-flow sanity check: does every half-product input get produced by
+  // an earlier step (or already sit in stock)? Not an error — another line may
+  // be stocking it — but worth a visible heads-up.
+  const flowWarnings = [];
+  {
+    const balance = new Map();
+    flat.forEach((s, i) => {
+      for (const inp of s.inputs ?? []) {
+        const item = state.inventory.find((x) => x.sku === inp.sku);
+        if (item?.category === 'Half product') {
+          const have = balance.get(inp.sku) ?? 0;
+          if (have < inp.qty && (item.qty ?? 0) <= 0) {
+            flowWarnings.push(`Step ${i + 1} (${s.name}) needs ${skuName(state, inp.sku)}, but no earlier step produces it and stock is empty — it will wait until another line makes some.`);
+          }
+          balance.set(inp.sku, Math.max(0, have - inp.qty));
+        }
+      }
+      for (const out of s.outputs ?? []) balance.set(out.sku, (balance.get(out.sku) ?? 0) + out.qty);
+    });
+  }
+
   return (
     <div className="designer-split">
       <div className="designer-list">
@@ -180,17 +226,12 @@ function WorkflowsTab({ state, canDesign }) {
                       </span>
                     </div>
                     {!isWf && !ref?.composite && (
-                      step.inputs?.length ? (
-                        <div style={{ marginTop: 6 }}>
-                          <InputsEditor state={state} inputs={step.inputs} compact
-                            onChange={(inputs) => setDraft({ ...draft, steps: draft.steps.map((s, j) => (j === i ? { ...s, inputs } : s)) })} />
-                        </div>
-                      ) : (
-                        <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                          uses type defaults: {ref?.inputs?.length ? ref.inputs.map((x) => `${x.qty}× ${skuName(state, x.sku)}`).join(', ') : 'no materials'}
-                          {' '}· <a className="link" onClick={() => setDraft({ ...draft, steps: draft.steps.map((s, j) => (j === i ? { ...s, inputs: JSON.parse(JSON.stringify(ref?.inputs?.length ? ref.inputs : [{ sku: state.inventory[0].sku, qty: 1 }])) } : s)) })}>customize</a>
-                        </div>
-                      )
+                      <>
+                        <StepIO state={state} label="⬅ consumes" list={step.inputs} defaults={ref?.inputs}
+                          onChange={(inputs) => setDraft({ ...draft, steps: draft.steps.map((s, j) => (j === i ? { ...s, inputs: inputs.length ? inputs : undefined } : s)) })} />
+                        <StepIO state={state} label="➡ produces" list={step.outputs} defaults={ref?.outputs}
+                          onChange={(outputs) => setDraft({ ...draft, steps: draft.steps.map((s, j) => (j === i ? { ...s, outputs: outputs.length ? outputs : undefined } : s)) })} />
+                      </>
                     )}
                   </div>
                   <div className="step-ctl">
@@ -237,6 +278,9 @@ function WorkflowsTab({ state, canDesign }) {
               {' '}per unit
             </div>
           )}
+          {flowWarnings.map((w, i) => (
+            <div key={i} className="hint-bar warn" style={{ marginTop: 8, marginBottom: 0 }}>⚠ {w}</div>
+          ))}
 
           <div className="form-row mt" style={{ alignItems: 'center' }}>
             <button className="btn btn-primary" onClick={save} disabled={!canDesign || !draft.name.trim() || draft.steps.length === 0} title={canDesign ? undefined : 'manager role required'}>
@@ -262,6 +306,7 @@ function StationTypesTab({ state, canDesign }) {
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [newHalfProduct, setNewHalfProduct] = useState('');
 
   const selected = stationTypes.find((t) => t.id === selectedId);
   useEffect(() => {
@@ -422,21 +467,27 @@ function StationTypesTab({ state, canDesign }) {
                   </div>
                 )}
               </div>
-              <h2 className="mt">Inputs — materials consumed per unit</h2>
+              <h2 className="mt">Inputs — consumed from stock per unit (raw materials or half products)</h2>
               <InputsEditor state={state} inputs={draft.inputs} onChange={(inputs) => setDraft({ ...draft, inputs })} />
-              <h2 className="mt">Outputs — what it produces (informational)</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {(draft.outputs ?? []).map((row, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 6 }}>
-                    <input value={row.sku} placeholder="e.g. welded-frame" className="mini-input" style={{ flex: 1 }}
-                      onChange={(e) => setDraft({ ...draft, outputs: draft.outputs.map((r, j) => (j === i ? { ...r, sku: e.target.value } : r)) })} />
-                    <input type="number" step="0.1" min="0.1" value={row.qty} className="mini-input" style={{ width: 70 }}
-                      onChange={(e) => setDraft({ ...draft, outputs: draft.outputs.map((r, j) => (j === i ? { ...r, qty: Number(e.target.value) } : r)) })} />
-                    <button type="button" className="btn btn-tiny" onClick={() => setDraft({ ...draft, outputs: draft.outputs.filter((_, j) => j !== i) })}>✕</button>
+              <h2 className="mt">Outputs — put back into stock per unit (usually a half product)</h2>
+              <InputsEditor state={state} inputs={draft.outputs ?? []} onChange={(outputs) => setDraft({ ...draft, outputs })} />
+              <div className="form-row" style={{ marginTop: 10, alignItems: 'end' }}>
+                <label className="field">Need a new half product? Define it here, then pick it above
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="mini-input" placeholder="e.g. Bent Sheet" value={newHalfProduct}
+                      onChange={(e) => setNewHalfProduct(e.target.value)} style={{ width: 180 }} />
+                    <button type="button" className="btn btn-tiny" disabled={!newHalfProduct.trim()}
+                      onClick={async () => {
+                        setError(null);
+                        try {
+                          await api.createInventoryItem({ name: newHalfProduct.trim() });
+                          setNewHalfProduct('');
+                        } catch (err) {
+                          setError(err.message);
+                        }
+                      }}>+ create</button>
                   </div>
-                ))}
-                <button type="button" className="btn btn-tiny" style={{ alignSelf: 'start' }}
-                  onClick={() => setDraft({ ...draft, outputs: [...(draft.outputs ?? []), { sku: '', qty: 1 }] })}>+ add output</button>
+                </label>
               </div>
             </>
           )}

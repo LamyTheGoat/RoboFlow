@@ -37,7 +37,8 @@ yerleşim planını kuşbakışı bir haritada — bir kurma oyunu gibi — kend
 | **İş akışı (Workflow)** | Bir ürünün üretilmesi için sırayla geçmesi gereken adımlar listesi. Örnek: Kes → Kaynakla → Monta et → Kontrol et → Paketle. |
 | **Sipariş (Order)** | Bir müşterinin istediği iş. Örnek: "Nordwerk için 12 adet robot kol tabanı". Sipariş, iş akışındaki adımları sırayla dolaşır. |
 | **Proje / Ürün hattı (Project)** | Ürettiğiniz bir ürün ailesi. Her proje bir iş akışına bağlıdır; o ürüne gelen siparişler o akışı izler. |
-| **Depo (Warehouse)** | Ham madde ve parça stoğu. Üretim başlarken malzemeler otomatik düşülür. |
+| **Depo (Warehouse)** | Ham madde ve parça stoğu. Her üretim adımı başlarken malzemeler otomatik düşülür, adım bitince ürettiği yarı mamul stoğa eklenir. |
+| **Yarı mamul (Half product)** | Bir istasyonun ürettiği ara ürün: kesilmiş parça, kaynaklı gövde, boyalı ünite gibi. Satın alınmaz, fabrikada üretilir; bir sonraki adımın (veya başka bir hattın) girdisi olur. |
 | **Uyarı (Alert)** | Dikkat etmeniz gereken olay: arıza, düşük stok, aşırı ısınma, yavaşlama vb. |
 
 ---
@@ -173,8 +174,11 @@ yaparsınız.
   istasyonlar kurulduklarındaki boyutu korur; yeni boyut yeni kurulumlara
   uygulanır.
 - **Time per unit:** bir ürünü kaç saniyede işlediği (planlanan süre).
-- **Inputs:** ürün başına depodan düşülecek malzemeler.
-- **Outputs:** ürettiği şey (bilgi amaçlı).
+- **Inputs:** ürün başına depodan düşülecek malzemeler — ham madde **veya
+  yarı mamul** olabilir (örn. kaynakçı "kesilmiş parça" tüketir).
+- **Outputs:** adım bittiğinde stoğa eklenecek şey — genellikle bir yarı
+  mamul (örn. kesici "kesilmiş parça" üretir). "Need a new half product?"
+  kutusuyla yeni bir yarı mamul tanımlayıp hemen seçebilirsiniz.
 - **⏱ measured / adopt measured time:** makine sahada çalıştıkça gerçek hızı
   ölçülür ve burada görünür. **"adopt measured time"** düğmesi tek tıkla
   tasarım süresini ölçülen gerçek süreyle değiştirir — planlarınız gerçeğe
@@ -193,8 +197,15 @@ yaparsınız.
   sonuna tek adım olarak koyabilirsiniz. İç içe akışlar serbesttir; sistem
   döngüye (bir akışın kendisini içermesine) izin vermez.
 - Adımları **▲▼** ile sıralayın, **✕** ile silin.
-- Her adımda "customize" ile o adımın tükettiği malzemeleri ürüne özel
-  değiştirebilirsiniz.
+- Her adımın **⬅ consumes** (tükettiği) ve **➡ produces** (ürettiği)
+  malzemelerini "customize" ile o adıma özel değiştirebilirsiniz. Bu sayede
+  **aynı istasyon aynı akışta birden çok kez, her seferinde farklı yarı
+  mamulle** kullanılabilir: örneğin sacı büktükten sonra boyar, montajı
+  yapar, bütün üniteyi **tekrar** boyarsınız — iki boya adımı da aynı boya
+  kabinini kullanır ama biri "bükülmüş sac", diğeri "montajlı ünite" işler.
+- Bir adımın istediği yarı mamulü daha önceki hiçbir adım üretmiyorsa (ve
+  stokta da yoksa) editör sarı bir uyarıyla haber verir — sipariş o adımda
+  başka bir hat o yarı mamulü üretene kadar bekler.
 - **Preview** şeridi, bir siparişin gerçekte yürüyeceği düz adım listesini ve
   ürün başına tahmini süreyi (tasarlanan + varsa sahada ölçülen) gösterir.
 - Kaydedilen değişiklik **yeni** siparişlere uygulanır; hâlihazırda üretimde

@@ -28,43 +28,50 @@ export function orderLocation(order) {
   return `Buffer before ${order.stages[order.stageIndex]?.name ?? '?'}`;
 }
 
-// Total material need = sum over the order's stage snapshot.
-function materialNeeds(order) {
-  const needs = new Map();
-  for (const stage of order.stages) {
-    for (const inp of stage.inputs ?? []) {
-      needs.set(inp.sku, +((needs.get(inp.sku) ?? 0) + inp.qty * order.qty).toFixed(1));
-    }
-  }
-  return needs;
-}
-
-function tryConsumeMaterials(order) {
-  if (order.materialsConsumed) return true;
-  const needs = materialNeeds(order);
+// Materials are consumed per stage, right when the stage starts, and each
+// stage's outputs land in the warehouse as half products (WIP) when it
+// finishes — so the output of one step literally feeds the input of the next
+// (or of any other order/line that needs the same half product).
+function tryConsumeStageInputs(order, stage) {
+  if (stage.inputsConsumed) return true;
   const missing = [];
-  for (const [sku, amount] of needs) {
-    const item = state.inventory.find((i) => i.sku === sku);
-    if (!item || item.qty < amount) missing.push(item?.name ?? sku);
+  for (const inp of stage.inputs ?? []) {
+    const item = state.inventory.find((i) => i.sku === inp.sku);
+    if (!item || item.qty < inp.qty * order.qty) missing.push(item?.name ?? inp.sku);
   }
   if (missing.length) {
     if (order.status !== 'on_hold') {
       order.status = 'on_hold';
-      raiseAlert('serious', order.code, `Material shortage: ${missing.join(', ')} — order on hold`);
+      raiseAlert('serious', order.code, `Waiting for material at ${stage.name}: ${missing.join(', ')} — order on hold`);
     }
     return false;
   }
-  for (const [sku, amount] of needs) {
-    const item = state.inventory.find((i) => i.sku === sku);
+  for (const inp of stage.inputs ?? []) {
+    const item = state.inventory.find((i) => i.sku === inp.sku);
+    const amount = +(inp.qty * order.qty).toFixed(1);
     item.qty = +(item.qty - amount).toFixed(1);
     item.consumedToday = +(item.consumedToday + amount).toFixed(1);
-    if (item.qty <= item.reorderPoint && item.qty + amount > item.reorderPoint) {
+    if (item.reorderPoint > 0 && item.qty <= item.reorderPoint && item.qty + amount > item.reorderPoint) {
       raiseAlert('warning', 'warehouse', `${item.name} below reorder point (${item.qty} ${item.unit} left)`);
     }
   }
-  order.materialsConsumed = true;
-  logEvent('warehouse', order.code, `Materials picked from warehouse for ${order.qty} units`);
+  stage.inputsConsumed = true;
+  if ((stage.inputs ?? []).length) {
+    logEvent('warehouse', order.code, `Materials issued for ${stage.name} (${order.qty} units)`);
+  }
   return true;
+}
+
+function produceStageOutputs(order, stage, station) {
+  const made = [];
+  for (const out of stage.outputs ?? []) {
+    const item = state.inventory.find((i) => i.sku === out.sku);
+    if (!item) continue;
+    const amount = +(out.qty * order.qty).toFixed(1);
+    item.qty = Math.min(item.capacity, +(item.qty + amount).toFixed(1));
+    made.push(`${amount} ${item.unit} ${item.name}`);
+  }
+  if (made.length) logEvent('warehouse', station.name, `Produced ${made.join(', ')} → stock`);
 }
 
 // Assign queued/held orders to idle stations. Called on every simulator tick
@@ -77,8 +84,6 @@ export function dispatchOrders() {
     .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.dueDate - b.dueDate);
 
   for (const order of waiting) {
-    if (!tryConsumeMaterials(order)) continue;
-    if (order.status === 'on_hold') order.status = 'queued';
     const stage = order.stages[order.stageIndex];
     const station = state.stations.find((s) => s.status === 'idle' && typeServes(s.typeId, stage.typeId));
     if (!station) {
@@ -88,6 +93,7 @@ export function dispatchOrders() {
       }
       continue;
     }
+    if (!tryConsumeStageInputs(order, stage)) continue;
     station.status = 'running';
     station.currentOrderId = order.id;
     station.progress = 0;
@@ -143,6 +149,7 @@ export function completeStage(station) {
   stage.status = 'done';
   stage.finishedAt = Date.now();
   recordActual(station, stage, order);
+  produceStageOutputs(order, stage, station);
   station.unitsToday += order.qty;
   logEvent('workflow', station.name, `${order.code} finished ${stage.name}`);
 
@@ -173,7 +180,6 @@ export function createOrder({ projectId, customer, qty, priority = 'normal', due
     status: 'queued',
     stageIndex: 0,
     stages,
-    materialsConsumed: false,
     createdAt: now,
     dueDate: now + dueInDays * 24 * 60 * 60 * 1000,
     completedAt: null,

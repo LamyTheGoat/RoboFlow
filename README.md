@@ -14,6 +14,18 @@ It is also a factory *design* tool:
   floor space. Stations can be **composite** (recursive): one physical cell
   that contains other stations — including other composites — and can do all
   of their jobs.
+- **Half products (WIP)** — inputs and outputs are real inventory items, and a
+  station's output is usually a *half product* (e.g. the Cutter turns steel
+  sheets into Cut Parts; the Welder consumes Cut Parts). Materials are issued
+  from stock when a stage *starts* and the stage's outputs land back in stock
+  when it *finishes*, so one step's output literally feeds the next — or any
+  other order/line that needs the same half product. Because the binding lives
+  on the **workflow step**, the same station type can appear several times in
+  one workflow with different materials each time (bend → paint the sheet →
+  assemble → paint the whole unit again), and the same Paint Booth serves
+  different products with different inputs per line. Workflow material totals
+  are netted sequentially, so they show only the *external* purchasing need.
+  New half products are defined inline in the station designer.
 - **Design studio → Workflows** — chain stations into workflows, reorder steps,
   override the materials any step uses. A workflow step can be a station *or a
   whole other workflow* (recursive nesting, cycle-guarded). Each product line

@@ -94,10 +94,12 @@ function tick() {
     });
   }
 
-  // 6. Goods-in: deliveries replenish whatever is lowest.
+  // 6. Goods-in: deliveries replenish whatever purchasable material is lowest.
+  // Half products are made on the floor, never bought.
   if (chance(0.03)) {
-    const lowest = [...state.inventory].sort((a, b) => a.qty / a.capacity - b.qty / b.capacity)[0];
-    receiveDelivery(lowest.sku, Math.round(lowest.capacity * (0.2 + Math.random() * 0.3)));
+    const purchasable = state.inventory.filter((i) => i.category !== 'Half product');
+    const lowest = purchasable.sort((a, b) => a.qty / a.capacity - b.qty / b.capacity)[0];
+    if (lowest) receiveDelivery(lowest.sku, Math.round(lowest.capacity * (0.2 + Math.random() * 0.3)));
   }
 
   dispatchOrders();
